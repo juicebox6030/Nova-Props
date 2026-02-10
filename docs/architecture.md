@@ -41,6 +41,19 @@ Each subdevice includes:
 
 A single config can contain multiple subdevices.
 
+### Stepper runtime notes
+
+- Stepper subdevices consume 2 or 3 DMX channels per mapping:
+  - 8-bit mode: `CH1` absolute position, `CH2` velocity override.
+  - 16-bit mode: `CH1+CH2` absolute position, `CH3` velocity override.
+- Stepper runtime stores internal step position and target state continuously between packets; on DMX loss it now de-energizes coils but preserves logical position/target state so reconnect does not introduce synthetic catch-up motion.
+- Absolute seek direction is configurable (`seekClockwise`) so position seeks can be forced CW or CCW.
+- Subdevice runtime configs now include driver enums (`Generic` currently) for Stepper/DC/Pixels to support descriptor-based driver expansion.
+- Runtime output writes are now state-buffered for DC/Pixels and stepper timing intervals are cached per command to reduce per-tick CPU load on single-core MCUs.
+- Optional ESP32 dual-core scheduling (`USE_ESP32_DUAL_CORE`) pins the runtime worker (sACN ingest + subdevice tick + DMX loss enforcement) to core 1 while web/OTA stay in the default loop task.
+- Optional per-stepper home/e-stop switch config can zero and stop the motor in runtime.
+
+
 ## Feature packaging
 
 Compile-time flags are defined in `include/core/features.h` and set per PlatformIO environment:
