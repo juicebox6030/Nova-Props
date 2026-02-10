@@ -111,16 +111,21 @@ static int32_t mapPositionToSteps(uint16_t rawPosition, uint16_t rawMax, uint16_
 }
 
 static int32_t computeSeekTargetSteps(const SubdeviceConfig& sd, const StepperState& st, int32_t targetWithinRev) {
+  // DMX absolute position should take the shortest path within one revolution.
+  // (This avoids always seeking CW/CCW and doing a full wrap when crossing 0.)
   int32_t stepsPerRev = sd.stepper.stepsPerRev;
+  if (stepsPerRev <= 0) return st.current;
+
   int32_t currentRelative = st.current - sd.stepper.homeOffsetSteps;
-  int32_t baseTurns = floorDiv(currentRelative, stepsPerRev);
-  int32_t target = (baseTurns * stepsPerRev) + targetWithinRev + sd.stepper.homeOffsetSteps;
-  if (sd.stepper.seekClockwise) {
-    if (target < st.current) target += stepsPerRev;
-  } else {
-    if (target > st.current) target -= stepsPerRev;
-  }
-  return target;
+  int32_t currentWithinRev = currentRelative % stepsPerRev;
+  if (currentWithinRev < 0) currentWithinRev += stepsPerRev;
+
+  int32_t delta = targetWithinRev - currentWithinRev;
+  int32_t half = stepsPerRev / 2;
+  if (delta > half) delta -= stepsPerRev;
+  if (delta < -half) delta += stepsPerRev;
+
+  return st.current + delta;
 }
 
 static void setRelayOutput(uint8_t i, bool on) {
@@ -168,22 +173,30 @@ static void applyStepperAbsoluteCommand(uint8_t i, int32_t targetWithinRev) {
 static void applyStepperVelocityCommand(uint8_t i, uint8_t speedRaw) {
   auto& sd = cfg.subdevices[i];
   auto& st = stepperStates[i];
+
   st.velocityMode = true;
-  st.velocityDir = 1;
+
+  // Velocity mapping:
+  //   0      = rotation disabled (handled by caller)
+  //   1-128  = CW slow -> fast
+  //   129-255= CCW fast -> slow
   float t = 0.0f;
-  if (speedRaw <= 127) {
-    t = (127.0f - (float)speedRaw) / 126.0f;
+  if (speedRaw <= 128) {
+    st.velocityDir = 1;
+    t = ((float)speedRaw - 1.0f) / 127.0f; // 1..128 => 0..1
   } else {
-    t = ((float)speedRaw - 128.0f) / 127.0f;
+    st.velocityDir = -1;
+    t = (255.0f - (float)speedRaw) / 126.0f; // 129..255 => 1..0
   }
+
   if (t < 0.0f) t = 0.0f;
   if (t > 1.0f) t = 1.0f;
+
   const float minDegPerSec = 1.0f;
   st.velocityDegPerSec = minDegPerSec + (sd.stepper.maxDegPerSec - minDegPerSec) * t;
   st.stepIntervalUs = computeStepperIntervalUs(sd.stepper.stepsPerRev, st.velocityDegPerSec);
   st.target = st.current;
 }
-
 uint8_t subdeviceSlotWidth(const SubdeviceConfig& sd) {
   switch (sd.type) {
     case SUBDEVICE_STEPPER: return sd.stepper.position16Bit ? 3 : 2;
