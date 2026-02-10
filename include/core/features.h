@@ -17,4 +17,8 @@
 #define USE_PIXELS 1
 #endif
 
+#ifndef USE_ESP32_DUAL_CORE
+#define USE_ESP32_DUAL_CORE 0
+#endif
+
 #endif

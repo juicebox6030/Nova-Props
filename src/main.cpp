@@ -16,6 +16,27 @@
 #include "platform/dmx_sacn.h"
 #include "platform/wifi_ota.h"
 
+#if defined(ARDUINO_ARCH_ESP32) && USE_ESP32_DUAL_CORE
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
+static TaskHandle_t runtimeTaskHandle = nullptr;
+
+static void runtimeLoopTask(void* param) {
+  (void)param;
+  while (true) {
+#if USE_SACN
+    handleSacnPackets();
+#endif
+    tickSubdevices();
+#if USE_SACN
+    enforceDmxLoss();
+#endif
+    vTaskDelay(1);
+  }
+}
+#endif
+
 void setup() {
   Serial.begin(115200);
   delay(200);
@@ -41,6 +62,17 @@ void setup() {
   // sACN must run in AP-only mode and STA-connected mode.
   startSacn();
 #endif
+
+#if defined(ARDUINO_ARCH_ESP32) && USE_ESP32_DUAL_CORE
+  xTaskCreatePinnedToCore(
+      runtimeLoopTask,
+      "runtime-loop",
+      4096,
+      nullptr,
+      1,
+      &runtimeTaskHandle,
+      1);
+#endif
 }
 
 void loop() {
@@ -50,6 +82,9 @@ void loop() {
 #if USE_OTA
   ArduinoOTA.handle();
 #endif
+#if defined(ARDUINO_ARCH_ESP32) && USE_ESP32_DUAL_CORE
+  vTaskDelay(1);
+#else
 #if USE_SACN
   handleSacnPackets();
 #endif
@@ -58,4 +93,5 @@ void loop() {
   enforceDmxLoss();
 #endif
   yield();
+#endif
 }

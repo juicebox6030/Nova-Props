@@ -55,3 +55,6 @@ Keys are DMX addresses and values are 0..255:
 - Keeps local UX/test flow aligned with firmware pages.
 - Adds deterministic observability for trigger verification.
 - Allows fast iteration before flashing hardware.
+
+- Performance note: stepper interval timing is cached and DC/pixel output writes are state-buffered; when validating behavior, verify unchanged DMX frames do not spam output updates.
+- ESP32 deployment note: `esp32-full-dualcore` enables `USE_ESP32_DUAL_CORE=1` to run sACN + subdevice runtime work on core 1 while loop-task services (web/OTA) remain on the default core.
