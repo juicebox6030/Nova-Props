@@ -40,15 +40,46 @@ static String typeOptions(SubdeviceType selected) {
   return s;
 }
 
+struct DriverDescriptor {
+  uint8_t id;
+  const char* name;
+};
+
+static constexpr DriverDescriptor STEPPER_DRIVER_DESCRIPTORS[] = {
+  {STEPPER_DRIVER_GENERIC, "Generic"},
+};
+
+static constexpr DriverDescriptor DC_DRIVER_DESCRIPTORS[] = {
+  {DC_DRIVER_GENERIC, "Generic"},
+};
+
+static constexpr DriverDescriptor PIXEL_DRIVER_DESCRIPTORS[] = {
+  {PIXEL_DRIVER_GENERIC, "Generic"},
+};
+
+static String driverOptions(const DriverDescriptor* descriptors, size_t count, uint8_t selected) {
+  String s;
+  for (size_t i = 0; i < count; i++) {
+    s += "<option value='" + String(descriptors[i].id) + "'";
+    if (descriptors[i].id == selected) s += " selected";
+    s += ">" + String(descriptors[i].name) + "</option>";
+  }
+  return s;
+}
+
 static void renderTypeSpecificFields(String& s, const SubdeviceConfig& sd) {
   switch (sd.type) {
     case SUBDEVICE_STEPPER:
-      s += "<fieldset><legend>Stepper</legend>IN1 <input name='st1' type='number' value='" + String(sd.stepper.in1) + "'> "
+      s += "<fieldset><legend>Stepper</legend>Driver <select name='stdrv'>" + driverOptions(STEPPER_DRIVER_DESCRIPTORS, sizeof(STEPPER_DRIVER_DESCRIPTORS) / sizeof(STEPPER_DRIVER_DESCRIPTORS[0]), sd.stepper.driver) + "</select><br><br>"
+           "IN1 <input name='st1' type='number' value='" + String(sd.stepper.in1) + "'> "
            "IN2 <input name='st2' type='number' value='" + String(sd.stepper.in2) + "'> "
            "IN3 <input name='st3' type='number' value='" + String(sd.stepper.in3) + "'> "
            "IN4 <input name='st4' type='number' value='" + String(sd.stepper.in4) + "'><br><br>"
            "Steps/rev <input name='stspr' type='number' value='" + String(sd.stepper.stepsPerRev) + "'> "
-           "Max deg/sec <input name='stspd' type='number' step='0.1' value='" + String(sd.stepper.maxDegPerSec) + "'><br><small>CH1=0..255 absolute 0..360°. CH2=0 off, 1..127 fast→slow CW, 128..255 slow→fast CW.</small><br><br>"
+           "Max deg/sec <input name='stspd' type='number' step='0.1' value='" + String(sd.stepper.maxDegPerSec) + "'><br>"
+           "<label><input type='checkbox' name='st16' " + String(sd.stepper.position16Bit ? "checked" : "") + ">16-bit position (CH1+CH2)</label> "
+           "<label><input type='checkbox' name='stseekcw' " + String(sd.stepper.seekClockwise ? "checked" : "") + ">Seek CW for absolute moves</label><br>"
+           "<small>8-bit mode: CH1 absolute + CH2 speed. 16-bit mode: CH1+CH2 absolute + CH3 speed. Speed: 0 off, 1..127 fast→slow CW, 128..255 slow→fast CW.</small><br><br>"
            "<label><input type='checkbox' name='stlim' " + String(sd.stepper.limitsEnabled ? "checked" : "") + ">Limits</label> "
            "Min <input name='stmin' type='number' step='0.1' value='" + String(sd.stepper.minDeg) + "'> "
            "Max <input name='stmax' type='number' step='0.1' value='" + String(sd.stepper.maxDeg) + "'><br><br>"
@@ -58,7 +89,7 @@ static void renderTypeSpecificFields(String& s, const SubdeviceConfig& sd) {
            "</fieldset><br>";
       break;
     case SUBDEVICE_DC_MOTOR:
-      s += "<fieldset><legend>DC Motor</legend>DIR <input name='dcdir' type='number' value='" + String(sd.dc.dirPin) + "'> "
+      s += "<fieldset><legend>DC Motor</legend>Driver <select name='dcdrv'>" + driverOptions(DC_DRIVER_DESCRIPTORS, sizeof(DC_DRIVER_DESCRIPTORS) / sizeof(DC_DRIVER_DESCRIPTORS[0]), sd.dc.driver) + "</select><br><br>DIR <input name='dcdir' type='number' value='" + String(sd.dc.dirPin) + "'> "
            "PWM <input name='dcpwm' type='number' value='" + String(sd.dc.pwmPin) + "'> "
            "CH <input name='dcch' type='number' value='" + String(sd.dc.pwmChannel) + "'><br><br>"
            "Hz <input name='dchz' type='number' value='" + String(sd.dc.pwmHz) + "'> "
@@ -75,7 +106,7 @@ static void renderTypeSpecificFields(String& s, const SubdeviceConfig& sd) {
            "LED active high <input type='checkbox' name='ledah' " + String(sd.led.activeHigh ? "checked" : "") + "></fieldset><br>";
       break;
     case SUBDEVICE_PIXELS:
-      s += "<fieldset><legend>Pixel Strip</legend>Pixel pin <input name='pxpin' type='number' value='" + String(sd.pixels.pin) + "'> "
+      s += "<fieldset><legend>Pixel Strip</legend>Driver <select name='pxdrv'>" + driverOptions(PIXEL_DRIVER_DESCRIPTORS, sizeof(PIXEL_DRIVER_DESCRIPTORS) / sizeof(PIXEL_DRIVER_DESCRIPTORS[0]), sd.pixels.driver) + "</select><br><br>Pixel pin <input name='pxpin' type='number' value='" + String(sd.pixels.pin) + "'> "
            "Count <input name='pxcount' type='number' value='" + String(sd.pixels.count) + "'> "
            "Brightness <input name='pxb' type='number' value='" + String(sd.pixels.brightness) + "'></fieldset><br>";
       break;
@@ -138,7 +169,11 @@ static void handleDmx() {
 
 static void renderSubdeviceForm(String& s, uint8_t i) {
   auto& sd = cfg.subdevices[i];
-  s += "<details style='border:1px solid #ccc;padding:8px;margin:10px 0;' open><summary><b>#" + String(i + 1) + " " + esc(String(sd.name)) + "</b> (" + subdeviceTypeName(sd.type) + ")</summary>";
+  String driverLabel;
+  if (sd.type == SUBDEVICE_STEPPER) driverLabel = stepperDriverTypeName(sd.stepper.driver);
+  if (sd.type == SUBDEVICE_DC_MOTOR) driverLabel = dcDriverTypeName(sd.dc.driver);
+  if (sd.type == SUBDEVICE_PIXELS) driverLabel = pixelDriverTypeName(sd.pixels.driver);
+  s += "<details style='border:1px solid #ccc;padding:8px;margin:10px 0;' open><summary><b>#" + String(i + 1) + " " + esc(String(sd.name)) + "</b> (" + subdeviceTypeName(sd.type) + (driverLabel.length() ? String(" / ") + driverLabel : String("")) + ")</summary>";
   s += "<form method='POST' action='/subdevices/update'>";
   s += "<input type='hidden' name='id' value='" + String(i) + "'>";
   s += "Name: <input name='name' value='" + esc(String(sd.name)) + "'> &nbsp;";
@@ -231,6 +266,7 @@ static void handleUpdateSubdevice() {
   sd.map.startAddr = (uint16_t)server.arg("a").toInt();
 
   if (sd.type == SUBDEVICE_STEPPER) {
+    sd.stepper.driver = (StepperDriverType)server.arg("stdrv").toInt();
     sd.stepper.in1 = (uint8_t)server.arg("st1").toInt();
     sd.stepper.in2 = (uint8_t)server.arg("st2").toInt();
     sd.stepper.in3 = (uint8_t)server.arg("st3").toInt();
@@ -243,7 +279,10 @@ static void handleUpdateSubdevice() {
     sd.stepper.homeSwitchEnabled = server.hasArg("sthomen");
     sd.stepper.homeSwitchPin = (uint8_t)server.arg("sthomepin").toInt();
     sd.stepper.homeSwitchActiveLow = server.hasArg("sthomeal");
+    sd.stepper.position16Bit = server.hasArg("st16");
+    sd.stepper.seekClockwise = server.hasArg("stseekcw");
   } else if (sd.type == SUBDEVICE_DC_MOTOR) {
+    sd.dc.driver = (DcDriverType)server.arg("dcdrv").toInt();
     sd.dc.dirPin = (uint8_t)server.arg("dcdir").toInt();
     sd.dc.pwmPin = (uint8_t)server.arg("dcpwm").toInt();
     sd.dc.pwmChannel = (uint8_t)server.arg("dcch").toInt();
@@ -258,6 +297,7 @@ static void handleUpdateSubdevice() {
     sd.led.pin = (uint8_t)server.arg("ledpin").toInt();
     sd.led.activeHigh = server.hasArg("ledah");
   } else if (sd.type == SUBDEVICE_PIXELS) {
+    sd.pixels.driver = (PixelDriverType)server.arg("pxdrv").toInt();
     sd.pixels.pin = (uint8_t)server.arg("pxpin").toInt();
     sd.pixels.count = (uint16_t)server.arg("pxcount").toInt();
     sd.pixels.brightness = (uint8_t)server.arg("pxb").toInt();

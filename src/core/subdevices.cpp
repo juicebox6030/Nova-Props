@@ -62,6 +62,31 @@ static uint16_t readU16(const uint8_t* dmxSlots, uint16_t addr) {
   return (uint16_t)((hi << 8) | lo);
 }
 
+static int32_t floorDiv(int32_t v, int32_t d) {
+  int32_t q = v / d;
+  int32_t r = v % d;
+  if (r != 0 && ((r > 0) != (d > 0))) q--;
+  return q;
+}
+
+static int32_t mapPositionToSteps(uint16_t rawPosition, uint16_t rawMax, uint16_t stepsPerRev) {
+  if (stepsPerRev <= 1 || rawMax == 0) return 0;
+  return (int32_t)(((uint32_t)rawPosition * (uint32_t)(stepsPerRev - 1)) / rawMax);
+}
+
+static int32_t computeSeekTargetSteps(const SubdeviceConfig& sd, const StepperState& st, int32_t targetWithinRev) {
+  int32_t stepsPerRev = sd.stepper.stepsPerRev;
+  int32_t currentRelative = st.current - sd.stepper.homeOffsetSteps;
+  int32_t baseTurns = floorDiv(currentRelative, stepsPerRev);
+  int32_t target = (baseTurns * stepsPerRev) + targetWithinRev + sd.stepper.homeOffsetSteps;
+  if (sd.stepper.seekClockwise) {
+    if (target < st.current) target += stepsPerRev;
+  } else {
+    if (target > st.current) target -= stepsPerRev;
+  }
+  return target;
+}
+
 static void setRelayOutput(uint8_t i, bool on) {
   auto& sd = cfg.subdevices[i];
   relayStates[i] = on;
@@ -78,7 +103,7 @@ static void setLedOutput(uint8_t i, bool on) {
 
 uint8_t subdeviceSlotWidth(const SubdeviceConfig& sd) {
   switch (sd.type) {
-    case SUBDEVICE_STEPPER: return 2;
+    case SUBDEVICE_STEPPER: return sd.stepper.position16Bit ? 3 : 2;
     case SUBDEVICE_DC_MOTOR: return 2;
     case SUBDEVICE_RELAY: return 1;
     case SUBDEVICE_LED: return 1;
@@ -94,6 +119,27 @@ String subdeviceTypeName(SubdeviceType type) {
     case SUBDEVICE_RELAY: return "Relay";
     case SUBDEVICE_LED: return "LED";
     case SUBDEVICE_PIXELS: return "Pixel Strip";
+    default: return "Unknown";
+  }
+}
+
+String stepperDriverTypeName(StepperDriverType type) {
+  switch (type) {
+    case STEPPER_DRIVER_GENERIC: return "Generic";
+    default: return "Unknown";
+  }
+}
+
+String dcDriverTypeName(DcDriverType type) {
+  switch (type) {
+    case DC_DRIVER_GENERIC: return "Generic";
+    default: return "Unknown";
+  }
+}
+
+String pixelDriverTypeName(PixelDriverType type) {
+  switch (type) {
+    case PIXEL_DRIVER_GENERIC: return "Generic";
     default: return "Unknown";
   }
 }
@@ -249,19 +295,31 @@ void applySacnToSubdevices(uint16_t universe, const uint8_t* dmxSlots, uint16_t 
         break;
       }
       case SUBDEVICE_STEPPER: {
-        uint8_t positionRaw = dmxSlots[sd.map.startAddr - 1];
-        uint8_t speedRaw = dmxSlots[sd.map.startAddr];
         auto& st = stepperStates[i];
+        uint8_t speedRaw = 0;
+        int32_t targetWithinRev = 0;
+
+        if (sd.stepper.position16Bit) {
+          uint16_t positionRaw16 = readU16(dmxSlots, sd.map.startAddr);
+          speedRaw = dmxSlots[sd.map.startAddr + 1];
+          targetWithinRev = mapPositionToSteps(positionRaw16, 65535, sd.stepper.stepsPerRev);
+        } else {
+          uint8_t positionRaw8 = dmxSlots[sd.map.startAddr - 1];
+          speedRaw = dmxSlots[sd.map.startAddr];
+          targetWithinRev = mapPositionToSteps(positionRaw8, 255, sd.stepper.stepsPerRev);
+        }
 
         if (speedRaw == 0) {
           st.velocityMode = false;
-          float deg = ((float)positionRaw / 255.0f) * 360.0f;
+          int32_t target = computeSeekTargetSteps(sd, st, targetWithinRev);
           if (sd.stepper.limitsEnabled) {
-            if (deg < sd.stepper.minDeg) deg = sd.stepper.minDeg;
-            if (deg > sd.stepper.maxDeg) deg = sd.stepper.maxDeg;
+            float stepsPerDeg = (float)sd.stepper.stepsPerRev / 360.0f;
+            int32_t minTarget = (int32_t)lroundf(sd.stepper.minDeg * stepsPerDeg) + sd.stepper.homeOffsetSteps;
+            int32_t maxTarget = (int32_t)lroundf(sd.stepper.maxDeg * stepsPerDeg) + sd.stepper.homeOffsetSteps;
+            if (target < minTarget) target = minTarget;
+            if (target > maxTarget) target = maxTarget;
           }
-          float stepsPerDeg = (float)sd.stepper.stepsPerRev / 360.0f;
-          st.target = (int32_t)lroundf(deg * stepsPerDeg) + sd.stepper.homeOffsetSteps;
+          st.target = target;
           st.velocityDegPerSec = 0.0f;
           break;
         }

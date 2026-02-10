@@ -97,12 +97,15 @@ Set these per environment in `platformio.ini` to fit small targets.
 ## Stepper + DC sACN channel behavior
 
 - **DC motor (2 channels):** value `0x0000` is treated as hard OFF; non-zero commands run normally (with configured deadband and PWM scaling).
-- **Stepper (2 channels):**
-  - `CH1` (start address): absolute position `0..255` mapped to `0..360°`.
-  - `CH2` (start address + 1): velocity override
-    - `0` = stop velocity mode (hold/use CH1 target)
-    - `1..127` = clockwise fast → slow
-    - `128..255` = clockwise slow → fast
+- **Stepper (2 or 3 channels):**
+  - Driver profile currently uses `Generic` (descriptor-based, so additional drivers can be added cleanly).
+  - 8-bit position mode (`position16Bit = false`):
+    - `CH1` (start address): absolute position `0..255` mapped into one full revolution.
+    - `CH2` (start address + 1): velocity override (`0` off, `1..127` fast → slow CW, `128..255` slow → fast CW).
+  - 16-bit position mode (`position16Bit = true`):
+    - `CH1+CH2` (start + 0/1): absolute position `0..65535` mapped into one full revolution.
+    - `CH3` (start + 2): same velocity override mapping.
+  - `seekClockwise` sets absolute seek direction (`true` = always CW, `false` = always CCW).
 - Stepper supports optional **home/e-stop switch** (`enabled`, `pin`, `active low`) and a **Home/Zero** action in the web UI.
 
 ---

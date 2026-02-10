@@ -20,5 +20,8 @@ bool runSubdeviceTest(uint8_t index);
 bool homeStepperSubdevice(uint8_t index);
 
 String subdeviceTypeName(SubdeviceType type);
+String stepperDriverTypeName(StepperDriverType type);
+String dcDriverTypeName(DcDriverType type);
+String pixelDriverTypeName(PixelDriverType type);
 
 #endif
