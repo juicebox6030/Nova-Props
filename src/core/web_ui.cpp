@@ -189,6 +189,7 @@ static void handleSaveDmx() {
   cfg.lossMode = (DmxLossMode)server.arg("lm").toInt();
   sanity();
   saveConfig();
+  restartSacn();
   server.sendHeader("Location", "/dmx");
   server.send(303);
 }
@@ -202,6 +203,7 @@ static void handleAddSubdevice() {
   }
   saveConfig();
   initSubdevices();
+  restartSacn();
   server.sendHeader("Location", "/subdevices");
   server.send(303);
 }
@@ -254,6 +256,7 @@ static void handleUpdateSubdevice() {
   sanity();
   saveConfig();
   initSubdevices();
+  restartSacn();
 
   server.sendHeader("Location", "/subdevices");
   server.send(303);
@@ -267,6 +270,7 @@ static void handleDeleteSubdevice() {
   }
   saveConfig();
   initSubdevices();
+  restartSacn();
   server.sendHeader("Location", "/subdevices");
   server.send(303);
 }

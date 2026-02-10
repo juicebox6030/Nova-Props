@@ -4,6 +4,7 @@
 #include <Arduino.h>
 
 void startSacn();
+void restartSacn();
 void handleSacnPackets();
 void enforceDmxLoss();
 

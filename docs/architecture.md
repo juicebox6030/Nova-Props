@@ -26,6 +26,7 @@ Nova-Props is split into three layers:
 3. Initialize subdevices from config
 4. Start networking
 5. Start optional services (Web UI, OTA, sACN)
+   - sACN starts in either AP-only fallback mode or STA-connected mode
 6. Main loop executes service handlers and subdevice ticks
 
 ## Subdevice model

@@ -38,11 +38,8 @@ void setup() {
 #endif
 
 #if USE_SACN
-  if (WiFi.getMode() & WIFI_STA) {
-    if (WiFi.status() == WL_CONNECTED) {
-      startSacn();
-    }
-  }
+  // sACN must run in AP-only mode and STA-connected mode.
+  startSacn();
 #endif
 }
 

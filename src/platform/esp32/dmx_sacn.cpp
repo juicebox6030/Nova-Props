@@ -19,6 +19,7 @@ static uint32_t sacnPacketCount = 0;
 static uint16_t lastUniverseSeenValue = 0;
 
 void startSacn() {
+  e131Started = false;
   uint16_t minU = subdeviceMinUniverse();
   uint16_t maxU = subdeviceMaxUniverse();
   uint16_t range = (maxU >= minU) ? (maxU - minU + 1) : 1;
@@ -31,6 +32,10 @@ void startSacn() {
     e131.begin(E131_UNICAST, minU, range);
   }
   e131Started = true;
+}
+
+void restartSacn() {
+  startSacn();
 }
 
 void handleSacnPackets() {
@@ -69,6 +74,7 @@ bool dmxActive() { return haveDmx; }
 #else
 
 void startSacn() {}
+void restartSacn() {}
 void handleSacnPackets() {}
 void enforceDmxLoss() {}
 uint32_t sacnPacketCounter() { return 0; }
