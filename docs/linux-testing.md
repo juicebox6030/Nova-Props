@@ -18,6 +18,7 @@
 In addition, it has **simulator-only hardware verification tools**:
 
 - `/subdevices/test?id=<index>` to run per-subdevice test actions
+- `/subdevices/home?id=<index>` to run stepper Home/Zero action
 - `/sim/dmx` to apply a DMX frame from JSON
 - `/api/events` to inspect hardware-probe events
 - `/api/events/clear` to reset event history

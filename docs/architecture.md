@@ -41,6 +41,13 @@ Each subdevice includes:
 
 A single config can contain multiple subdevices.
 
+### Stepper runtime notes
+
+- Stepper subdevices consume 2 DMX channels per mapping (`CH1` absolute position, `CH2` velocity override).
+- Stepper runtime stores internal step position and target state continuously between packets; sACN loss handling applies global loss policy and does not clear state unless configured to force OFF.
+- Optional per-stepper home/e-stop switch config can zero and stop the motor in runtime.
+
+
 ## Feature packaging
 
 Compile-time flags are defined in `include/core/features.h` and set per PlatformIO environment:
