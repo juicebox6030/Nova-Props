@@ -33,12 +33,16 @@ void sanity() {
     if (sd.stepper.stepsPerRev < 200) sd.stepper.stepsPerRev = 200;
     if (sd.stepper.stepsPerRev > 20000) sd.stepper.stepsPerRev = 20000;
     if (sd.stepper.maxDegPerSec < 1.0f) sd.stepper.maxDegPerSec = 1.0f;
-    if (sd.stepper.maxDegPerSec > 720.0f) sd.stepper.maxDegPerSec = 720.0f;
+    if (sd.stepper.maxDegPerSec > 5000.0f) sd.stepper.maxDegPerSec = 5000.0f;
+    if (sd.stepper.driver > STEPPER_DRIVER_GENERIC) sd.stepper.driver = STEPPER_DRIVER_GENERIC;
+    if (sd.dc.driver > DC_DRIVER_GENERIC) sd.dc.driver = DC_DRIVER_GENERIC;
+    if (sd.pixels.driver > PIXEL_DRIVER_GENERIC) sd.pixels.driver = PIXEL_DRIVER_GENERIC;
     if (sd.stepper.minDeg > sd.stepper.maxDeg) {
       float t = sd.stepper.minDeg;
       sd.stepper.minDeg = sd.stepper.maxDeg;
       sd.stepper.maxDeg = t;
     }
+    if (sd.stepper.homeSwitchPin > 39 && sd.stepper.homeSwitchPin != 255) sd.stepper.homeSwitchPin = 255;
   }
 }
 
@@ -51,6 +55,7 @@ static void loadSubdevice(JsonObject obj, SubdeviceConfig& sd) {
   sd.map.universe = obj["map"]["universe"] | 1;
   sd.map.startAddr = obj["map"]["startAddr"] | 1;
 
+  sd.dc.driver = (DcDriverType)((int)obj["dc"]["driver"] | (int)sd.dc.driver);
   sd.dc.dirPin = obj["dc"]["dirPin"] | sd.dc.dirPin;
   sd.dc.pwmPin = obj["dc"]["pwmPin"] | sd.dc.pwmPin;
   sd.dc.pwmChannel = obj["dc"]["pwmChannel"] | sd.dc.pwmChannel;
@@ -59,6 +64,7 @@ static void loadSubdevice(JsonObject obj, SubdeviceConfig& sd) {
   sd.dc.deadband = obj["dc"]["deadband"] | sd.dc.deadband;
   sd.dc.maxPwm = obj["dc"]["maxPwm"] | sd.dc.maxPwm;
 
+  sd.stepper.driver = (StepperDriverType)((int)obj["stepper"]["driver"] | (int)sd.stepper.driver);
   sd.stepper.in1 = obj["stepper"]["in1"] | sd.stepper.in1;
   sd.stepper.in2 = obj["stepper"]["in2"] | sd.stepper.in2;
   sd.stepper.in3 = obj["stepper"]["in3"] | sd.stepper.in3;
@@ -69,6 +75,11 @@ static void loadSubdevice(JsonObject obj, SubdeviceConfig& sd) {
   sd.stepper.minDeg = obj["stepper"]["minDeg"] | sd.stepper.minDeg;
   sd.stepper.maxDeg = obj["stepper"]["maxDeg"] | sd.stepper.maxDeg;
   sd.stepper.homeOffsetSteps = obj["stepper"]["homeOffsetSteps"] | sd.stepper.homeOffsetSteps;
+  sd.stepper.homeSwitchEnabled = obj["stepper"]["homeSwitchEnabled"] | sd.stepper.homeSwitchEnabled;
+  sd.stepper.homeSwitchPin = obj["stepper"]["homeSwitchPin"] | sd.stepper.homeSwitchPin;
+  sd.stepper.homeSwitchActiveLow = obj["stepper"]["homeSwitchActiveLow"] | sd.stepper.homeSwitchActiveLow;
+  sd.stepper.position16Bit = obj["stepper"]["position16Bit"] | sd.stepper.position16Bit;
+  sd.stepper.seekClockwise = obj["stepper"]["seekClockwise"] | sd.stepper.seekClockwise;
 
   sd.relay.pin = obj["relay"]["pin"] | sd.relay.pin;
   sd.relay.activeHigh = obj["relay"]["activeHigh"] | sd.relay.activeHigh;
@@ -76,6 +87,7 @@ static void loadSubdevice(JsonObject obj, SubdeviceConfig& sd) {
   sd.led.pin = obj["led"]["pin"] | sd.led.pin;
   sd.led.activeHigh = obj["led"]["activeHigh"] | sd.led.activeHigh;
 
+  sd.pixels.driver = (PixelDriverType)((int)obj["pixels"]["driver"] | (int)sd.pixels.driver);
   sd.pixels.pin = obj["pixels"]["pin"] | sd.pixels.pin;
   sd.pixels.count = obj["pixels"]["count"] | sd.pixels.count;
   sd.pixels.brightness = obj["pixels"]["brightness"] | sd.pixels.brightness;
@@ -89,6 +101,7 @@ static void saveSubdevice(JsonArray arr, const SubdeviceConfig& sd) {
   obj["map"]["universe"] = sd.map.universe;
   obj["map"]["startAddr"] = sd.map.startAddr;
 
+  obj["dc"]["driver"] = (int)sd.dc.driver;
   obj["dc"]["dirPin"] = sd.dc.dirPin;
   obj["dc"]["pwmPin"] = sd.dc.pwmPin;
   obj["dc"]["pwmChannel"] = sd.dc.pwmChannel;
@@ -97,6 +110,7 @@ static void saveSubdevice(JsonArray arr, const SubdeviceConfig& sd) {
   obj["dc"]["deadband"] = sd.dc.deadband;
   obj["dc"]["maxPwm"] = sd.dc.maxPwm;
 
+  obj["stepper"]["driver"] = (int)sd.stepper.driver;
   obj["stepper"]["in1"] = sd.stepper.in1;
   obj["stepper"]["in2"] = sd.stepper.in2;
   obj["stepper"]["in3"] = sd.stepper.in3;
@@ -107,6 +121,11 @@ static void saveSubdevice(JsonArray arr, const SubdeviceConfig& sd) {
   obj["stepper"]["minDeg"] = sd.stepper.minDeg;
   obj["stepper"]["maxDeg"] = sd.stepper.maxDeg;
   obj["stepper"]["homeOffsetSteps"] = sd.stepper.homeOffsetSteps;
+  obj["stepper"]["homeSwitchEnabled"] = sd.stepper.homeSwitchEnabled;
+  obj["stepper"]["homeSwitchPin"] = sd.stepper.homeSwitchPin;
+  obj["stepper"]["homeSwitchActiveLow"] = sd.stepper.homeSwitchActiveLow;
+  obj["stepper"]["position16Bit"] = sd.stepper.position16Bit;
+  obj["stepper"]["seekClockwise"] = sd.stepper.seekClockwise;
 
   obj["relay"]["pin"] = sd.relay.pin;
   obj["relay"]["activeHigh"] = sd.relay.activeHigh;
@@ -114,6 +133,7 @@ static void saveSubdevice(JsonArray arr, const SubdeviceConfig& sd) {
   obj["led"]["pin"] = sd.led.pin;
   obj["led"]["activeHigh"] = sd.led.activeHigh;
 
+  obj["pixels"]["driver"] = (int)sd.pixels.driver;
   obj["pixels"]["pin"] = sd.pixels.pin;
   obj["pixels"]["count"] = sd.pixels.count;
   obj["pixels"]["brightness"] = sd.pixels.brightness;

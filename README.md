@@ -61,6 +61,7 @@ docs/
 Available environments are in `platformio.ini`:
 
 - `esp32-full` (all features)
+- `esp32-full-dualcore` (all features + dual-core runtime split)
 - `esp32-lite` (OTA + pixels disabled)
 - `esp8266-lite` (OTA + pixels disabled)
 
@@ -68,6 +69,7 @@ Examples:
 
 ```bash
 pio run -e esp32-full
+pio run -e esp32-full-dualcore
 pio run -e esp32-lite
 pio run -e esp8266-lite
 ```
@@ -90,6 +92,25 @@ Defined in `include/core/features.h` and controlled by `build_flags`:
 - `USE_PIXELS`
 
 Set these per environment in `platformio.ini` to fit small targets.
+
+---
+
+
+## Stepper + DC sACN channel behavior
+
+- **DC motor (2 channels):** value `0x0000` is treated as hard OFF; non-zero commands run normally (with configured deadband and PWM scaling).
+- **Stepper (2 or 3 channels):**
+  - Driver profile currently uses `Generic` (descriptor-based, so additional drivers can be added cleanly).
+  - 8-bit position mode (`position16Bit = false`):
+    - `CH1` (start address): absolute position `0..255` mapped into one full revolution.
+    - `CH2` (start address + 1): velocity override (`0` off, `1..127` fast → slow CW, `128..255` slow → fast CW).
+  - 16-bit position mode (`position16Bit = true`):
+    - `CH1+CH2` (start + 0/1): absolute position `0..65535` mapped into one full revolution.
+    - `CH3` (start + 2): same velocity override mapping.
+  - `seekClockwise` sets absolute seek direction (`true` = always CW, `false` = always CCW).
+- Stepper supports optional **home/e-stop switch** (`enabled`, `pin`, `active low`) and a **Home/Zero** action in the web UI.
+- Runtime command handling buffers output state (DC/pixels) and caches stepper timing intervals to keep the single-core loop responsive under high sACN packet rates.
+- Optional ESP32 dual-core mode (`USE_ESP32_DUAL_CORE=1`) moves the sACN + subdevice runtime loop onto core 1 while the default Arduino loop handles web/OTA services.
 
 ---
 
