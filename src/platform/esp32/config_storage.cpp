@@ -1,5 +1,7 @@
 #include "platform/esp32/config_storage.h"
 
+#include "core/subdevices.h"
+
 const char* CFG_PATH = "/config.json";
 
 bool parseIp(const String& s, IPAddress& out) {
@@ -13,25 +15,121 @@ bool parseIp(const String& s, IPAddress& out) {
 void sanity() {
   if (cfg.universe < 1) cfg.universe = 1;
   if (cfg.startAddr < 1) cfg.startAddr = 1;
-  if (cfg.startAddr > 508) cfg.startAddr = 508; // need 4 slots total (2 + 2)
+  if (cfg.startAddr > 512) cfg.startAddr = 512;
   if (cfg.lossTimeoutMs < 100) cfg.lossTimeoutMs = 100;
   if (cfg.lossTimeoutMs > 60000) cfg.lossTimeoutMs = 60000;
-  if (cfg.stepsPerRev < 200) cfg.stepsPerRev = 200;
-  if (cfg.stepsPerRev > 20000) cfg.stepsPerRev = 20000;
-  if (cfg.maxDegPerSec < 1.0f) cfg.maxDegPerSec = 1.0f;
-  if (cfg.maxDegPerSec > 720.0f) cfg.maxDegPerSec = 720.0f;
-  if (cfg.minDeg > cfg.maxDeg) {
-    float t = cfg.minDeg; cfg.minDeg = cfg.maxDeg; cfg.maxDeg = t;
+  if (cfg.subdeviceCount > MAX_SUBDEVICES) cfg.subdeviceCount = MAX_SUBDEVICES;
+
+  for (uint8_t i = 0; i < cfg.subdeviceCount; i++) {
+    SubdeviceConfig& sd = cfg.subdevices[i];
+    if (sd.map.universe < 1) sd.map.universe = 1;
+    if (sd.map.startAddr < 1) sd.map.startAddr = 1;
+    if (sd.map.startAddr > 512) sd.map.startAddr = 512;
+    if (sd.dc.pwmBits < 1) sd.dc.pwmBits = 1;
+    if (sd.dc.pwmBits > 16) sd.dc.pwmBits = 16;
+    if (sd.dc.pwmChannel > 15) sd.dc.pwmChannel = 15;
+    if (sd.dc.pwmHz < 1) sd.dc.pwmHz = 1;
+    if (sd.pixels.count > 1024) sd.pixels.count = 1024;
+    if (sd.stepper.stepsPerRev < 200) sd.stepper.stepsPerRev = 200;
+    if (sd.stepper.stepsPerRev > 20000) sd.stepper.stepsPerRev = 20000;
+    if (sd.stepper.maxDegPerSec < 1.0f) sd.stepper.maxDegPerSec = 1.0f;
+    if (sd.stepper.maxDegPerSec > 720.0f) sd.stepper.maxDegPerSec = 720.0f;
+    if (sd.stepper.minDeg > sd.stepper.maxDeg) {
+      float t = sd.stepper.minDeg;
+      sd.stepper.minDeg = sd.stepper.maxDeg;
+      sd.stepper.maxDeg = t;
+    }
   }
-  if (cfg.hardware.dcMotor.pwmBits < 1) cfg.hardware.dcMotor.pwmBits = 1;
-  if (cfg.hardware.dcMotor.pwmBits > 16) cfg.hardware.dcMotor.pwmBits = 16;
-  if (cfg.hardware.dcMotor.pwmHz < 1) cfg.hardware.dcMotor.pwmHz = 1;
-  if (cfg.hardware.dcMotor.pwmChannel > 15) cfg.hardware.dcMotor.pwmChannel = 15;
-  if (cfg.hardware.pixels.count > 1024) cfg.hardware.pixels.count = 1024;
+}
+
+static void loadSubdevice(JsonObject obj, SubdeviceConfig& sd) {
+  sd.enabled = obj["enabled"] | true;
+  sd.type = (SubdeviceType)((int)obj["type"] | (int)SUBDEVICE_STEPPER);
+  String name = obj["name"].is<const char*>() ? String(obj["name"].as<const char*>()) : String("subdevice");
+  name.toCharArray(sd.name, sizeof(sd.name));
+
+  sd.map.universe = obj["map"]["universe"] | 1;
+  sd.map.startAddr = obj["map"]["startAddr"] | 1;
+
+  sd.dc.dirPin = obj["dc"]["dirPin"] | sd.dc.dirPin;
+  sd.dc.pwmPin = obj["dc"]["pwmPin"] | sd.dc.pwmPin;
+  sd.dc.pwmChannel = obj["dc"]["pwmChannel"] | sd.dc.pwmChannel;
+  sd.dc.pwmHz = obj["dc"]["pwmHz"] | sd.dc.pwmHz;
+  sd.dc.pwmBits = obj["dc"]["pwmBits"] | sd.dc.pwmBits;
+  sd.dc.deadband = obj["dc"]["deadband"] | sd.dc.deadband;
+  sd.dc.maxPwm = obj["dc"]["maxPwm"] | sd.dc.maxPwm;
+
+  sd.stepper.in1 = obj["stepper"]["in1"] | sd.stepper.in1;
+  sd.stepper.in2 = obj["stepper"]["in2"] | sd.stepper.in2;
+  sd.stepper.in3 = obj["stepper"]["in3"] | sd.stepper.in3;
+  sd.stepper.in4 = obj["stepper"]["in4"] | sd.stepper.in4;
+  sd.stepper.stepsPerRev = obj["stepper"]["stepsPerRev"] | sd.stepper.stepsPerRev;
+  sd.stepper.maxDegPerSec = obj["stepper"]["maxDegPerSec"] | sd.stepper.maxDegPerSec;
+  sd.stepper.limitsEnabled = obj["stepper"]["limitsEnabled"] | sd.stepper.limitsEnabled;
+  sd.stepper.minDeg = obj["stepper"]["minDeg"] | sd.stepper.minDeg;
+  sd.stepper.maxDeg = obj["stepper"]["maxDeg"] | sd.stepper.maxDeg;
+  sd.stepper.homeOffsetSteps = obj["stepper"]["homeOffsetSteps"] | sd.stepper.homeOffsetSteps;
+
+  sd.relay.pin = obj["relay"]["pin"] | sd.relay.pin;
+  sd.relay.activeHigh = obj["relay"]["activeHigh"] | sd.relay.activeHigh;
+
+  sd.led.pin = obj["led"]["pin"] | sd.led.pin;
+  sd.led.activeHigh = obj["led"]["activeHigh"] | sd.led.activeHigh;
+
+  sd.pixels.pin = obj["pixels"]["pin"] | sd.pixels.pin;
+  sd.pixels.count = obj["pixels"]["count"] | sd.pixels.count;
+  sd.pixels.brightness = obj["pixels"]["brightness"] | sd.pixels.brightness;
+}
+
+static void saveSubdevice(JsonArray arr, const SubdeviceConfig& sd) {
+  JsonObject obj = arr.add<JsonObject>();
+  obj["enabled"] = sd.enabled;
+  obj["type"] = (int)sd.type;
+  obj["name"] = sd.name;
+  obj["map"]["universe"] = sd.map.universe;
+  obj["map"]["startAddr"] = sd.map.startAddr;
+
+  obj["dc"]["dirPin"] = sd.dc.dirPin;
+  obj["dc"]["pwmPin"] = sd.dc.pwmPin;
+  obj["dc"]["pwmChannel"] = sd.dc.pwmChannel;
+  obj["dc"]["pwmHz"] = sd.dc.pwmHz;
+  obj["dc"]["pwmBits"] = sd.dc.pwmBits;
+  obj["dc"]["deadband"] = sd.dc.deadband;
+  obj["dc"]["maxPwm"] = sd.dc.maxPwm;
+
+  obj["stepper"]["in1"] = sd.stepper.in1;
+  obj["stepper"]["in2"] = sd.stepper.in2;
+  obj["stepper"]["in3"] = sd.stepper.in3;
+  obj["stepper"]["in4"] = sd.stepper.in4;
+  obj["stepper"]["stepsPerRev"] = sd.stepper.stepsPerRev;
+  obj["stepper"]["maxDegPerSec"] = sd.stepper.maxDegPerSec;
+  obj["stepper"]["limitsEnabled"] = sd.stepper.limitsEnabled;
+  obj["stepper"]["minDeg"] = sd.stepper.minDeg;
+  obj["stepper"]["maxDeg"] = sd.stepper.maxDeg;
+  obj["stepper"]["homeOffsetSteps"] = sd.stepper.homeOffsetSteps;
+
+  obj["relay"]["pin"] = sd.relay.pin;
+  obj["relay"]["activeHigh"] = sd.relay.activeHigh;
+
+  obj["led"]["pin"] = sd.led.pin;
+  obj["led"]["activeHigh"] = sd.led.activeHigh;
+
+  obj["pixels"]["pin"] = sd.pixels.pin;
+  obj["pixels"]["count"] = sd.pixels.count;
+  obj["pixels"]["brightness"] = sd.pixels.brightness;
 }
 
 bool loadConfig() {
-  if (!LittleFS.exists(CFG_PATH)) return false;
+  if (!LittleFS.exists(CFG_PATH)) {
+    if (cfg.subdeviceCount == 0) {
+      addSubdevice(SUBDEVICE_DC_MOTOR, "dc-1");
+      cfg.subdevices[0].map.startAddr = 1;
+      addSubdevice(SUBDEVICE_STEPPER, "stepper-1");
+      cfg.subdevices[1].map.startAddr = 3;
+    }
+    return false;
+  }
+
   File f = LittleFS.open(CFG_PATH, "r");
   if (!f) return false;
 
@@ -42,10 +140,8 @@ bool loadConfig() {
 
   cfg.ssid = doc["wifi"]["ssid"].is<const char*>() ? String(doc["wifi"]["ssid"].as<const char*>()) : String("");
   cfg.pass = doc["wifi"]["pass"].is<const char*>() ? String(doc["wifi"]["pass"].as<const char*>()) : String("");
-
   cfg.useStatic = doc["wifi"]["static"]["enabled"] | false;
 
-  // Arrays: access via JsonArray (no proxy copies)
   if (doc["wifi"]["static"]["ip"].is<JsonArray>()) {
     JsonArray a = doc["wifi"]["static"]["ip"].as<JsonArray>();
     if (a.size() == 4) cfg.ip = IPAddress((uint8_t)a[0], (uint8_t)a[1], (uint8_t)a[2], (uint8_t)a[3]);
@@ -62,44 +158,27 @@ bool loadConfig() {
   cfg.universe = doc["dmx"]["universe"] | 1;
   cfg.startAddr = doc["dmx"]["startAddr"] | 1;
   cfg.sacnMode = (SacnMode)((int)doc["dmx"]["sacnMode"] | (int)SACN_UNICAST);
-
   cfg.lossMode = (DmxLossMode)((int)doc["dmx"]["lossMode"] | (int)LOSS_FORCE_OFF);
   cfg.lossTimeoutMs = doc["dmx"]["lossTimeoutMs"] | 1000;
+  cfg.homeButtonPin = doc["hardware"]["homeButtonPin"] | cfg.homeButtonPin;
 
-  cfg.dcDeadband = doc["dc"]["deadband"] | 900;
-  cfg.dcMaxPwm = doc["dc"]["maxPwm"] | 255;
-  cfg.dcStopMode = (DcStopMode)((int)doc["dc"]["stopMode"] | (int)DC_COAST);
+  cfg.subdeviceCount = 0;
+  if (doc["subdevices"].is<JsonArray>()) {
+    JsonArray arr = doc["subdevices"].as<JsonArray>();
+    for (JsonVariant v : arr) {
+      if (cfg.subdeviceCount >= MAX_SUBDEVICES || !v.is<JsonObject>()) break;
+      SubdeviceConfig sd;
+      loadSubdevice(v.as<JsonObject>(), sd);
+      cfg.subdevices[cfg.subdeviceCount++] = sd;
+    }
+  }
 
-  cfg.stepsPerRev = doc["stepper"]["stepsPerRev"] | 4096;
-  cfg.maxDegPerSec = doc["stepper"]["maxDegPerSec"] | 90.0f;
-  cfg.homeOffsetSteps = doc["stepper"]["homeOffsetSteps"] | 0;
-
-  cfg.limitsEnabled = doc["stepper"]["limits"]["enabled"] | false;
-  cfg.minDeg = doc["stepper"]["limits"]["minDeg"] | 0.0f;
-  cfg.maxDeg = doc["stepper"]["limits"]["maxDeg"] | 360.0f;
-
-  cfg.hardware.dcMotor.dirPin = doc["hardware"]["dcMotor"]["dirPin"] | cfg.hardware.dcMotor.dirPin;
-  cfg.hardware.dcMotor.pwmPin = doc["hardware"]["dcMotor"]["pwmPin"] | cfg.hardware.dcMotor.pwmPin;
-  cfg.hardware.dcMotor.pwmChannel = doc["hardware"]["dcMotor"]["pwmChannel"] | cfg.hardware.dcMotor.pwmChannel;
-  cfg.hardware.dcMotor.pwmHz = doc["hardware"]["dcMotor"]["pwmHz"] | cfg.hardware.dcMotor.pwmHz;
-  cfg.hardware.dcMotor.pwmBits = doc["hardware"]["dcMotor"]["pwmBits"] | cfg.hardware.dcMotor.pwmBits;
-
-  cfg.hardware.stepper.in1 = doc["hardware"]["stepper"]["in1"] | cfg.hardware.stepper.in1;
-  cfg.hardware.stepper.in2 = doc["hardware"]["stepper"]["in2"] | cfg.hardware.stepper.in2;
-  cfg.hardware.stepper.in3 = doc["hardware"]["stepper"]["in3"] | cfg.hardware.stepper.in3;
-  cfg.hardware.stepper.in4 = doc["hardware"]["stepper"]["in4"] | cfg.hardware.stepper.in4;
-
-  cfg.hardware.relay.pin = doc["hardware"]["relay"]["pin"] | cfg.hardware.relay.pin;
-  cfg.hardware.relay.activeHigh = doc["hardware"]["relay"]["activeHigh"] | cfg.hardware.relay.activeHigh;
-
-  cfg.hardware.led.pin = doc["hardware"]["led"]["pin"] | cfg.hardware.led.pin;
-  cfg.hardware.led.activeHigh = doc["hardware"]["led"]["activeHigh"] | cfg.hardware.led.activeHigh;
-
-  cfg.hardware.pixels.pin = doc["hardware"]["pixels"]["pin"] | cfg.hardware.pixels.pin;
-  cfg.hardware.pixels.count = doc["hardware"]["pixels"]["count"] | cfg.hardware.pixels.count;
-  cfg.hardware.pixels.brightness = doc["hardware"]["pixels"]["brightness"] | cfg.hardware.pixels.brightness;
-
-  cfg.hardware.homeButtonPin = doc["hardware"]["homeButtonPin"] | cfg.hardware.homeButtonPin;
+  if (cfg.subdeviceCount == 0) {
+    addSubdevice(SUBDEVICE_DC_MOTOR, "dc-1");
+    cfg.subdevices[0].map.startAddr = 1;
+    addSubdevice(SUBDEVICE_STEPPER, "stepper-1");
+    cfg.subdevices[1].map.startAddr = 3;
+  }
 
   sanity();
   return true;
@@ -123,43 +202,14 @@ bool saveConfig() {
   doc["dmx"]["universe"] = cfg.universe;
   doc["dmx"]["startAddr"] = cfg.startAddr;
   doc["dmx"]["sacnMode"] = (int)cfg.sacnMode;
-
   doc["dmx"]["lossMode"] = (int)cfg.lossMode;
   doc["dmx"]["lossTimeoutMs"] = cfg.lossTimeoutMs;
+  doc["hardware"]["homeButtonPin"] = cfg.homeButtonPin;
 
-  doc["dc"]["deadband"] = cfg.dcDeadband;
-  doc["dc"]["maxPwm"] = cfg.dcMaxPwm;
-  doc["dc"]["stopMode"] = (int)cfg.dcStopMode;
-
-  doc["stepper"]["stepsPerRev"] = cfg.stepsPerRev;
-  doc["stepper"]["maxDegPerSec"] = cfg.maxDegPerSec;
-  doc["stepper"]["homeOffsetSteps"] = cfg.homeOffsetSteps;
-  doc["stepper"]["limits"]["enabled"] = cfg.limitsEnabled;
-  doc["stepper"]["limits"]["minDeg"] = cfg.minDeg;
-  doc["stepper"]["limits"]["maxDeg"] = cfg.maxDeg;
-
-  doc["hardware"]["dcMotor"]["dirPin"] = cfg.hardware.dcMotor.dirPin;
-  doc["hardware"]["dcMotor"]["pwmPin"] = cfg.hardware.dcMotor.pwmPin;
-  doc["hardware"]["dcMotor"]["pwmChannel"] = cfg.hardware.dcMotor.pwmChannel;
-  doc["hardware"]["dcMotor"]["pwmHz"] = cfg.hardware.dcMotor.pwmHz;
-  doc["hardware"]["dcMotor"]["pwmBits"] = cfg.hardware.dcMotor.pwmBits;
-
-  doc["hardware"]["stepper"]["in1"] = cfg.hardware.stepper.in1;
-  doc["hardware"]["stepper"]["in2"] = cfg.hardware.stepper.in2;
-  doc["hardware"]["stepper"]["in3"] = cfg.hardware.stepper.in3;
-  doc["hardware"]["stepper"]["in4"] = cfg.hardware.stepper.in4;
-
-  doc["hardware"]["relay"]["pin"] = cfg.hardware.relay.pin;
-  doc["hardware"]["relay"]["activeHigh"] = cfg.hardware.relay.activeHigh;
-
-  doc["hardware"]["led"]["pin"] = cfg.hardware.led.pin;
-  doc["hardware"]["led"]["activeHigh"] = cfg.hardware.led.activeHigh;
-
-  doc["hardware"]["pixels"]["pin"] = cfg.hardware.pixels.pin;
-  doc["hardware"]["pixels"]["count"] = cfg.hardware.pixels.count;
-  doc["hardware"]["pixels"]["brightness"] = cfg.hardware.pixels.brightness;
-
-  doc["hardware"]["homeButtonPin"] = cfg.hardware.homeButtonPin;
+  JsonArray arr = doc["subdevices"].to<JsonArray>();
+  for (uint8_t i = 0; i < cfg.subdeviceCount; i++) {
+    saveSubdevice(arr, cfg.subdevices[i]);
+  }
 
   File f = LittleFS.open(CFG_PATH, "w");
   if (!f) return false;
