@@ -73,6 +73,16 @@ static void homeStepperState(uint8_t i) {
   setStepperCoilsLow(sd);
 }
 
+static void holdStepperStateOnLoss(uint8_t i) {
+  auto& sd = cfg.subdevices[i];
+  auto& st = stepperStates[i];
+  st.velocityMode = false;
+  st.velocityDegPerSec = 0.0f;
+  st.target = st.current;
+  st.stepIntervalUs = computeStepperIntervalUs(sd.stepper.stepsPerRev, sd.stepper.maxDegPerSec);
+  setStepperCoilsLow(sd);
+}
+
 static uint32_t computeStepperIntervalUs(uint16_t stepsPerRev, float degPerSec) {
   float stepsPerDeg = (float)stepsPerRev / 360.0f;
   float stepsPerSec = degPerSec * stepsPerDeg;
@@ -160,7 +170,7 @@ static void applyStepperVelocityCommand(uint8_t i, uint8_t speedRaw) {
   auto& st = stepperStates[i];
   st.velocityMode = true;
   st.velocityDir = 1;
-  float t;
+  float t = 0.0f;
   if (speedRaw <= 127) {
     t = (127.0f - (float)speedRaw) / 126.0f;
   } else {
@@ -442,7 +452,7 @@ void stopSubdevicesOnLoss() {
 #endif
         break;
       case SUBDEVICE_STEPPER:
-        homeStepperState(i);
+        holdStepperStateOnLoss(i);
         break;
       default:
         break;
