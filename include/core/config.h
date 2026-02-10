@@ -15,6 +15,18 @@ enum SubdeviceType : uint8_t {
   SUBDEVICE_PIXELS = 4,
 };
 
+enum StepperDriverType : uint8_t {
+  STEPPER_DRIVER_GENERIC = 0,
+};
+
+enum DcDriverType : uint8_t {
+  DC_DRIVER_GENERIC = 0,
+};
+
+enum PixelDriverType : uint8_t {
+  PIXEL_DRIVER_GENERIC = 0,
+};
+
 static constexpr uint8_t MAX_SUBDEVICES = 12;
 
 struct SacnMapping {
@@ -23,6 +35,7 @@ struct SacnMapping {
 };
 
 struct StepperRuntimeConfig {
+  StepperDriverType driver = STEPPER_DRIVER_GENERIC;
   uint8_t in1 = 16;
   uint8_t in2 = 17;
   uint8_t in3 = 18;
@@ -33,9 +46,15 @@ struct StepperRuntimeConfig {
   float minDeg = 0.0f;
   float maxDeg = 360.0f;
   int32_t homeOffsetSteps = 0;
+  bool homeSwitchEnabled = false;
+  uint8_t homeSwitchPin = 255;
+  bool homeSwitchActiveLow = true;
+  bool position16Bit = false;
+  bool seekClockwise = true;
 };
 
 struct DcMotorRuntimeConfig {
+  DcDriverType driver = DC_DRIVER_GENERIC;
   uint8_t dirPin = 25;
   uint8_t pwmPin = 27;
   uint8_t pwmChannel = 0;
@@ -56,6 +75,7 @@ struct LedRuntimeConfig {
 };
 
 struct PixelRuntimeConfig {
+  PixelDriverType driver = PIXEL_DRIVER_GENERIC;
   uint8_t pin = 26;
   uint16_t count = 30;
   uint8_t brightness = 50;
