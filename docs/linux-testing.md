@@ -1,42 +1,48 @@
 # Linux test version (simulator) + existing options
 
-You asked whether an existing solution exists or if we needed to build one.
-
 ## Existing solutions
 
-- **Wokwi** (browser simulation for ESP-class boards): great for quick emulation, but not ideal for full local Linux CI-style app flow.
-- **PlatformIO unit tests**: useful for logic tests, but not a full runtime app with web UX + runtime subdevice control.
-- **Hardware-in-loop** on Linux with real board connected: best fidelity, but still requires hardware.
+- **Wokwi**: quick MCU emulation, but less suited to full local app/testing workflow.
+- **PlatformIO unit tests**: good for isolated logic tests, not full runtime UI flow.
+- **Hardware-in-loop**: highest fidelity, requires hardware.
 
-## What was built here
+## Simulator in this repo
 
-A **Linux simulator app** in this repo: `simulator/sim_app.py`.
+`simulator/sim_app.py` now mirrors firmware Web UI route structure as closely as possible:
 
-It provides:
-- Web UI at `http://127.0.0.1:8080`
-- "Add Subdevice" flow (Stepper/DC/Relay/LED/Pixels)
-- Subdevice list + delete actions
-- DMX frame simulation endpoint/form
-- Hardware probe events so you can verify expected triggering behavior
+- `/` root dashboard
+- `/wifi` WiFi settings
+- `/dmx` sACN settings
+- `/subdevices` subdevice CRUD/editor
 
-### Start it
+In addition, it has **simulator-only hardware verification tools**:
+
+- `/sim/dmx` to apply a DMX frame from JSON
+- `/api/events` to inspect hardware-probe events
+- `/api/events/clear` to reset event history
+
+## Start
 
 ```bash
 python3 simulator/sim_app.py
 ```
 
-### Core test flow
+Optional bind controls:
+
+```bash
+SIM_HOST=0.0.0.0 SIM_PORT=8080 python3 simulator/sim_app.py
+```
+
+## Core test flow
 
 1. Open `http://127.0.0.1:8080`
-2. Add subdevices
-3. Send a DMX test frame in the form (`Slots JSON`)
-4. Inspect emitted hardware events:
-   - Browser: `http://127.0.0.1:8080/api/events`
-   - Clear: `http://127.0.0.1:8080/api/events/clear`
+2. Configure app via `/wifi`, `/dmx`, `/subdevices` like firmware UI
+3. On `/subdevices`, use simulator-only DMX form to send frame
+4. Verify resulting hardware events in `/api/events`
 
-### DMX slots JSON format
+## DMX slots JSON format
 
-Use object keys as DMX addresses:
+Keys are DMX addresses and values are 0..255:
 
 ```json
 {"1": 255, "2": 0, "3": 127}
@@ -44,6 +50,6 @@ Use object keys as DMX addresses:
 
 ## Why this helps
 
-- Lets you validate mapping + trigger behavior on Linux with no board connected.
-- Gives a deterministic event stream (`/api/events`) for manual QA or automated tests.
-- Keeps firmware code focused on embedded runtime while enabling desktop verification during development.
+- Keeps local UX/test flow aligned with firmware pages.
+- Adds deterministic observability for trigger verification.
+- Allows fast iteration before flashing hardware.
