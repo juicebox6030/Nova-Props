@@ -5,6 +5,10 @@
 
 #include "core/config.h"
 #include "core/dc_motor.h"
+#include "core/hardware_devices.h"
+#include "core/led.h"
+#include "core/pixels.h"
+#include "core/relay.h"
 #include "core/stepper.h"
 #include "platform/esp32/config_storage.h"
 #include "platform/esp32/dmx_sacn.h"
@@ -51,7 +55,7 @@ static void handleRoot() {
        "<a href='/test/step/360'>360°</a></p>";
 
   s += "<p><a href='/home'>Set Home (current as 0°)</a></p>";
-  s += "<p><a href='/wifi'>WiFi</a> | <a href='/dmx'>DMX/Motion</a></p>";
+  s += "<p><a href='/wifi'>WiFi</a> | <a href='/dmx'>DMX/Motion</a> | <a href='/hardware'>Hardware</a></p>";
   s += "</body></html>";
   server.send(200, "text/html", s);
 }
@@ -68,6 +72,52 @@ static void handleWifi() {
   s += "Mask: <input name='mask' value='" + cfg.mask.toString() + "'><br><br>";
   s += "<button type='submit'>Save & Reboot</button>";
   s += "</form>";
+  s += "<p><a href='/'>Back</a></p></body></html>";
+  server.send(200, "text/html", s);
+}
+
+static void handleHardware() {
+  String s = htmlHead("Hardware");
+  s += "<h2>Hardware Mapping</h2>";
+  s += "<form method='POST' action='/savehardware'>";
+
+  s += "<h3>DC Motor (L298P)</h3>";
+  s += "DIR pin: <input name='dc_dir' type='number' min='0' max='39' value='" + String(cfg.hardware.dcMotor.dirPin) + "'><br><br>";
+  s += "PWM pin: <input name='dc_pwm' type='number' min='0' max='39' value='" + String(cfg.hardware.dcMotor.pwmPin) + "'><br><br>";
+  s += "PWM channel: <input name='dc_ch' type='number' min='0' max='15' value='" + String(cfg.hardware.dcMotor.pwmChannel) + "'><br><br>";
+  s += "PWM Hz: <input name='dc_hz' type='number' min='1' max='20000' value='" + String(cfg.hardware.dcMotor.pwmHz) + "'><br><br>";
+  s += "PWM bits: <input name='dc_bits' type='number' min='1' max='16' value='" + String(cfg.hardware.dcMotor.pwmBits) + "'><br><br>";
+
+  s += "<h3>Stepper (ULN2003)</h3>";
+  s += "IN1: <input name='st_in1' type='number' min='0' max='39' value='" + String(cfg.hardware.stepper.in1) + "'><br><br>";
+  s += "IN2: <input name='st_in2' type='number' min='0' max='39' value='" + String(cfg.hardware.stepper.in2) + "'><br><br>";
+  s += "IN3: <input name='st_in3' type='number' min='0' max='39' value='" + String(cfg.hardware.stepper.in3) + "'><br><br>";
+  s += "IN4: <input name='st_in4' type='number' min='0' max='39' value='" + String(cfg.hardware.stepper.in4) + "'><br><br>";
+
+  s += "<h3>Relay</h3>";
+  s += "Pin: <input name='rl_pin' type='number' min='0' max='39' value='" + String(cfg.hardware.relay.pin) + "'><br><br>";
+  s += "<label><input name='rl_ah' type='checkbox' " + String(cfg.hardware.relay.activeHigh ? "checked" : "") + "> Active high</label><br><br>";
+
+  s += "<h3>Status LED</h3>";
+  s += "Pin: <input name='led_pin' type='number' min='0' max='39' value='" + String(cfg.hardware.led.pin) + "'><br><br>";
+  s += "<label><input name='led_ah' type='checkbox' " + String(cfg.hardware.led.activeHigh ? "checked" : "") + "> Active high</label><br><br>";
+
+  s += "<h3>Pixel Strip (NeoPixel)</h3>";
+  s += "Pin: <input name='px_pin' type='number' min='0' max='39' value='" + String(cfg.hardware.pixels.pin) + "'><br><br>";
+  s += "Count: <input name='px_count' type='number' min='0' max='1024' value='" + String(cfg.hardware.pixels.count) + "'><br><br>";
+  s += "Brightness: <input name='px_brightness' type='number' min='0' max='255' value='" + String(cfg.hardware.pixels.brightness) + "'><br><br>";
+
+  s += "<h3>Home Button</h3>";
+  s += "Pin: <input name='home_pin' type='number' min='0' max='39' value='" + String(cfg.hardware.homeButtonPin) + "'><br><br>";
+
+  s += "<button type='submit'>Save & Apply</button>";
+  s += "</form>";
+
+  s += "<h3>Quick Tests</h3>";
+  s += "<p><a href='/test/relay/on'>Relay ON</a> | <a href='/test/relay/off'>Relay OFF</a></p>";
+  s += "<p><a href='/test/led/on'>LED ON</a> | <a href='/test/led/off'>LED OFF</a></p>";
+  s += "<p><a href='/test/pixels/white'>Pixels White</a> | <a href='/test/pixels/off'>Pixels Off</a></p>";
+
   s += "<p><a href='/'>Back</a></p></body></html>";
   server.send(200, "text/html", s);
 }
@@ -161,6 +211,40 @@ static void handleSaveDmx() {
   server.send(303);
 }
 
+static void handleSaveHardware() {
+  if (server.method() != HTTP_POST) { server.send(405, "text/plain", "Method Not Allowed"); return; }
+
+  cfg.hardware.dcMotor.dirPin = (uint8_t)server.arg("dc_dir").toInt();
+  cfg.hardware.dcMotor.pwmPin = (uint8_t)server.arg("dc_pwm").toInt();
+  cfg.hardware.dcMotor.pwmChannel = (uint8_t)server.arg("dc_ch").toInt();
+  cfg.hardware.dcMotor.pwmHz = (uint32_t)server.arg("dc_hz").toInt();
+  cfg.hardware.dcMotor.pwmBits = (uint8_t)server.arg("dc_bits").toInt();
+
+  cfg.hardware.stepper.in1 = (uint8_t)server.arg("st_in1").toInt();
+  cfg.hardware.stepper.in2 = (uint8_t)server.arg("st_in2").toInt();
+  cfg.hardware.stepper.in3 = (uint8_t)server.arg("st_in3").toInt();
+  cfg.hardware.stepper.in4 = (uint8_t)server.arg("st_in4").toInt();
+
+  cfg.hardware.relay.pin = (uint8_t)server.arg("rl_pin").toInt();
+  cfg.hardware.relay.activeHigh = server.hasArg("rl_ah");
+
+  cfg.hardware.led.pin = (uint8_t)server.arg("led_pin").toInt();
+  cfg.hardware.led.activeHigh = server.hasArg("led_ah");
+
+  cfg.hardware.pixels.pin = (uint8_t)server.arg("px_pin").toInt();
+  cfg.hardware.pixels.count = (uint16_t)server.arg("px_count").toInt();
+  cfg.hardware.pixels.brightness = (uint8_t)server.arg("px_brightness").toInt();
+
+  cfg.hardware.homeButtonPin = (uint8_t)server.arg("home_pin").toInt();
+
+  saveConfig();
+  applyHardwareConfig();
+  pinMode(cfg.hardware.homeButtonPin, INPUT_PULLUP);
+
+  server.sendHeader("Location", "/hardware");
+  server.send(303);
+}
+
 static void handleHome() {
   // set current step position as 0 degrees
   cfg.homeOffsetSteps = stepperCurrentPosition();
@@ -173,8 +257,10 @@ void setupWeb() {
   server.on("/", handleRoot);
   server.on("/wifi", handleWifi);
   server.on("/dmx", handleDmx);
+  server.on("/hardware", handleHardware);
   server.on("/savewifi", handleSaveWifi);
   server.on("/savedmx", handleSaveDmx);
+  server.on("/savehardware", handleSaveHardware);
   server.on("/home", handleHome);
 
   // Quick test endpoints
@@ -199,6 +285,13 @@ void setupWeb() {
   server.on("/test/step/180", [](){ stepperSetTargetDeg(180); server.sendHeader("Location","/"); server.send(303); });
   server.on("/test/step/270", [](){ stepperSetTargetDeg(270); server.sendHeader("Location","/"); server.send(303); });
   server.on("/test/step/360", [](){ stepperSetTargetDeg(360); server.sendHeader("Location","/"); server.send(303); });
+
+  server.on("/test/relay/on", [](){ setRelay(true); server.sendHeader("Location","/hardware"); server.send(303); });
+  server.on("/test/relay/off", [](){ setRelay(false); server.sendHeader("Location","/hardware"); server.send(303); });
+  server.on("/test/led/on", [](){ setStatusLed(true); server.sendHeader("Location","/hardware"); server.send(303); });
+  server.on("/test/led/off", [](){ setStatusLed(false); server.sendHeader("Location","/hardware"); server.send(303); });
+  server.on("/test/pixels/white", [](){ setAllPixels(255, 255, 255); showPixels(); server.sendHeader("Location","/hardware"); server.send(303); });
+  server.on("/test/pixels/off", [](){ setAllPixels(0, 0, 0); showPixels(); server.sendHeader("Location","/hardware"); server.send(303); });
 
   server.begin();
 }

@@ -1,8 +1,6 @@
 #include "core/stepper.h"
 
 #include "core/config.h"
-#include "platform/esp32/hardware.h"
-
 static int32_t stepCurrent = 0;
 static int32_t stepTarget  = 0;
 static uint8_t halfStepIdx = 0;
@@ -20,10 +18,10 @@ static constexpr uint8_t HALFSEQ[8][4] = {
 };
 
 static void stepperWritePhase(uint8_t idx) {
-  digitalWrite(STEP_IN1, HALFSEQ[idx][0] ? HIGH : LOW);
-  digitalWrite(STEP_IN2, HALFSEQ[idx][1] ? HIGH : LOW);
-  digitalWrite(STEP_IN3, HALFSEQ[idx][2] ? HIGH : LOW);
-  digitalWrite(STEP_IN4, HALFSEQ[idx][3] ? HIGH : LOW);
+  digitalWrite(cfg.hardware.stepper.in1, HALFSEQ[idx][0] ? HIGH : LOW);
+  digitalWrite(cfg.hardware.stepper.in2, HALFSEQ[idx][1] ? HIGH : LOW);
+  digitalWrite(cfg.hardware.stepper.in3, HALFSEQ[idx][2] ? HIGH : LOW);
+  digitalWrite(cfg.hardware.stepper.in4, HALFSEQ[idx][3] ? HIGH : LOW);
 }
 
 static float clampf(float v, float lo, float hi) {
@@ -46,10 +44,10 @@ float stepsToDeg(int32_t steps) {
 }
 
 void initStepper() {
-  pinMode(STEP_IN1, OUTPUT);
-  pinMode(STEP_IN2, OUTPUT);
-  pinMode(STEP_IN3, OUTPUT);
-  pinMode(STEP_IN4, OUTPUT);
+  pinMode(cfg.hardware.stepper.in1, OUTPUT);
+  pinMode(cfg.hardware.stepper.in2, OUTPUT);
+  pinMode(cfg.hardware.stepper.in3, OUTPUT);
+  pinMode(cfg.hardware.stepper.in4, OUTPUT);
   stepperWritePhase(0);
 }
 

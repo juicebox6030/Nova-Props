@@ -7,11 +7,10 @@
 #include <LittleFS.h>
 
 #include "core/config.h"
-#include "core/dc_motor.h"
+#include "core/hardware_devices.h"
 #include "core/stepper.h"
 #include "platform/esp32/config_storage.h"
 #include "platform/esp32/dmx_sacn.h"
-#include "platform/esp32/hardware.h"
 #include "platform/esp32/web_ui.h"
 #include "platform/esp32/wifi_ota.h"
 
@@ -43,10 +42,9 @@ void setup() {
   sanity();
 
   // GPIO init
-  initStepper();
-  initDcMotor();
+  applyHardwareConfig();
 
-  pinMode(HOME_BTN, INPUT_PULLUP);
+  pinMode(cfg.hardware.homeButtonPin, INPUT_PULLUP);
 
   // WiFi connect or AP fallback
   bool ok = connectSta(8000);
@@ -65,7 +63,7 @@ void setup() {
 
 static void handleHomeButton() {
   static bool did = false;
-  bool b = digitalRead(HOME_BTN); // true = not pressed (pullup)
+  bool b = digitalRead(cfg.hardware.homeButtonPin); // true = not pressed (pullup)
   uint32_t now = millis();
 
   if (b != lastBtn) {

@@ -23,6 +23,11 @@ void sanity() {
   if (cfg.minDeg > cfg.maxDeg) {
     float t = cfg.minDeg; cfg.minDeg = cfg.maxDeg; cfg.maxDeg = t;
   }
+  if (cfg.hardware.dcMotor.pwmBits < 1) cfg.hardware.dcMotor.pwmBits = 1;
+  if (cfg.hardware.dcMotor.pwmBits > 16) cfg.hardware.dcMotor.pwmBits = 16;
+  if (cfg.hardware.dcMotor.pwmHz < 1) cfg.hardware.dcMotor.pwmHz = 1;
+  if (cfg.hardware.dcMotor.pwmChannel > 15) cfg.hardware.dcMotor.pwmChannel = 15;
+  if (cfg.hardware.pixels.count > 1024) cfg.hardware.pixels.count = 1024;
 }
 
 bool loadConfig() {
@@ -73,6 +78,29 @@ bool loadConfig() {
   cfg.minDeg = doc["stepper"]["limits"]["minDeg"] | 0.0f;
   cfg.maxDeg = doc["stepper"]["limits"]["maxDeg"] | 360.0f;
 
+  cfg.hardware.dcMotor.dirPin = doc["hardware"]["dcMotor"]["dirPin"] | cfg.hardware.dcMotor.dirPin;
+  cfg.hardware.dcMotor.pwmPin = doc["hardware"]["dcMotor"]["pwmPin"] | cfg.hardware.dcMotor.pwmPin;
+  cfg.hardware.dcMotor.pwmChannel = doc["hardware"]["dcMotor"]["pwmChannel"] | cfg.hardware.dcMotor.pwmChannel;
+  cfg.hardware.dcMotor.pwmHz = doc["hardware"]["dcMotor"]["pwmHz"] | cfg.hardware.dcMotor.pwmHz;
+  cfg.hardware.dcMotor.pwmBits = doc["hardware"]["dcMotor"]["pwmBits"] | cfg.hardware.dcMotor.pwmBits;
+
+  cfg.hardware.stepper.in1 = doc["hardware"]["stepper"]["in1"] | cfg.hardware.stepper.in1;
+  cfg.hardware.stepper.in2 = doc["hardware"]["stepper"]["in2"] | cfg.hardware.stepper.in2;
+  cfg.hardware.stepper.in3 = doc["hardware"]["stepper"]["in3"] | cfg.hardware.stepper.in3;
+  cfg.hardware.stepper.in4 = doc["hardware"]["stepper"]["in4"] | cfg.hardware.stepper.in4;
+
+  cfg.hardware.relay.pin = doc["hardware"]["relay"]["pin"] | cfg.hardware.relay.pin;
+  cfg.hardware.relay.activeHigh = doc["hardware"]["relay"]["activeHigh"] | cfg.hardware.relay.activeHigh;
+
+  cfg.hardware.led.pin = doc["hardware"]["led"]["pin"] | cfg.hardware.led.pin;
+  cfg.hardware.led.activeHigh = doc["hardware"]["led"]["activeHigh"] | cfg.hardware.led.activeHigh;
+
+  cfg.hardware.pixels.pin = doc["hardware"]["pixels"]["pin"] | cfg.hardware.pixels.pin;
+  cfg.hardware.pixels.count = doc["hardware"]["pixels"]["count"] | cfg.hardware.pixels.count;
+  cfg.hardware.pixels.brightness = doc["hardware"]["pixels"]["brightness"] | cfg.hardware.pixels.brightness;
+
+  cfg.hardware.homeButtonPin = doc["hardware"]["homeButtonPin"] | cfg.hardware.homeButtonPin;
+
   sanity();
   return true;
 }
@@ -109,6 +137,29 @@ bool saveConfig() {
   doc["stepper"]["limits"]["enabled"] = cfg.limitsEnabled;
   doc["stepper"]["limits"]["minDeg"] = cfg.minDeg;
   doc["stepper"]["limits"]["maxDeg"] = cfg.maxDeg;
+
+  doc["hardware"]["dcMotor"]["dirPin"] = cfg.hardware.dcMotor.dirPin;
+  doc["hardware"]["dcMotor"]["pwmPin"] = cfg.hardware.dcMotor.pwmPin;
+  doc["hardware"]["dcMotor"]["pwmChannel"] = cfg.hardware.dcMotor.pwmChannel;
+  doc["hardware"]["dcMotor"]["pwmHz"] = cfg.hardware.dcMotor.pwmHz;
+  doc["hardware"]["dcMotor"]["pwmBits"] = cfg.hardware.dcMotor.pwmBits;
+
+  doc["hardware"]["stepper"]["in1"] = cfg.hardware.stepper.in1;
+  doc["hardware"]["stepper"]["in2"] = cfg.hardware.stepper.in2;
+  doc["hardware"]["stepper"]["in3"] = cfg.hardware.stepper.in3;
+  doc["hardware"]["stepper"]["in4"] = cfg.hardware.stepper.in4;
+
+  doc["hardware"]["relay"]["pin"] = cfg.hardware.relay.pin;
+  doc["hardware"]["relay"]["activeHigh"] = cfg.hardware.relay.activeHigh;
+
+  doc["hardware"]["led"]["pin"] = cfg.hardware.led.pin;
+  doc["hardware"]["led"]["activeHigh"] = cfg.hardware.led.activeHigh;
+
+  doc["hardware"]["pixels"]["pin"] = cfg.hardware.pixels.pin;
+  doc["hardware"]["pixels"]["count"] = cfg.hardware.pixels.count;
+  doc["hardware"]["pixels"]["brightness"] = cfg.hardware.pixels.brightness;
+
+  doc["hardware"]["homeButtonPin"] = cfg.hardware.homeButtonPin;
 
   File f = LittleFS.open(CFG_PATH, "w");
   if (!f) return false;

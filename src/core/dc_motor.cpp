@@ -1,23 +1,21 @@
 #include "core/dc_motor.h"
 
 #include "core/config.h"
-#include "platform/esp32/hardware.h"
-
 static int16_t dcLastCmd = 0;
 
 void initDcMotor() {
-  pinMode(DC_DIR_PIN, OUTPUT);
-  digitalWrite(DC_DIR_PIN, LOW);
+  pinMode(cfg.hardware.dcMotor.dirPin, OUTPUT);
+  digitalWrite(cfg.hardware.dcMotor.dirPin, LOW);
 
-  ledcSetup(DC_PWM_CH, DC_PWM_HZ, DC_PWM_BITS);
-  ledcAttachPin(DC_PWM_PIN, DC_PWM_CH);
+  ledcSetup(cfg.hardware.dcMotor.pwmChannel, cfg.hardware.dcMotor.pwmHz, cfg.hardware.dcMotor.pwmBits);
+  ledcAttachPin(cfg.hardware.dcMotor.pwmPin, cfg.hardware.dcMotor.pwmChannel);
   dcStop();
 }
 
 void dcStop() {
   // On this shield, Motor A stop is achieved by PWM=0.
   // (Classic L298 "brake" by shorting outputs isn't exposed via pins here.)
-  ledcWrite(DC_PWM_CH, 0);
+  ledcWrite(cfg.hardware.dcMotor.pwmChannel, 0);
 }
 
 void dcApplySigned(int16_t signedCmd) {
@@ -39,9 +37,9 @@ void dcApplySigned(int16_t signedCmd) {
   if (out > cfg.dcMaxPwm) out = cfg.dcMaxPwm;
 
   // Direction pin (EA): HIGH=forward, LOW=reverse (per board table)
-  digitalWrite(DC_DIR_PIN, fwd ? HIGH : LOW);
+  digitalWrite(cfg.hardware.dcMotor.dirPin, fwd ? HIGH : LOW);
 
-  ledcWrite(DC_PWM_CH, (uint8_t)out);
+  ledcWrite(cfg.hardware.dcMotor.pwmChannel, (uint8_t)out);
 }
 
 int16_t dcLastCommand() {

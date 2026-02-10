@@ -7,6 +7,46 @@ enum SacnMode : uint8_t { SACN_UNICAST = 0, SACN_MULTICAST = 1 };
 enum DmxLossMode : uint8_t { LOSS_FORCE_OFF = 0, LOSS_FORCE_ON = 1, LOSS_HOLD_LAST = 2 };
 enum DcStopMode : uint8_t { DC_COAST = 0, DC_BRAKE = 1 };
 
+struct DcMotorConfig {
+  uint8_t dirPin = 25;
+  uint8_t pwmPin = 27;
+  uint8_t pwmChannel = 0;
+  uint32_t pwmHz = 500;
+  uint8_t pwmBits = 8;
+};
+
+struct StepperConfig {
+  uint8_t in1 = 16;
+  uint8_t in2 = 17;
+  uint8_t in3 = 18;
+  uint8_t in4 = 19;
+};
+
+struct RelayConfig {
+  uint8_t pin = 22;
+  bool activeHigh = true;
+};
+
+struct LedConfig {
+  uint8_t pin = 21;
+  bool activeHigh = true;
+};
+
+struct PixelConfig {
+  uint8_t pin = 26;
+  uint16_t count = 30;
+  uint8_t brightness = 50;
+};
+
+struct HardwareConfig {
+  DcMotorConfig dcMotor;
+  StepperConfig stepper;
+  RelayConfig relay;
+  LedConfig led;
+  PixelConfig pixels;
+  uint8_t homeButtonPin = 23;
+};
+
 struct AppConfig {
   // WiFi
   String ssid;
@@ -42,6 +82,8 @@ struct AppConfig {
 
   // Home offset: step position that corresponds to 0 degrees
   int32_t homeOffsetSteps = 0;
+
+  HardwareConfig hardware;
 };
 
 extern AppConfig cfg;
