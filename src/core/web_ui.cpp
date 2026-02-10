@@ -51,11 +51,7 @@ static void renderTypeSpecificFields(String& s, const SubdeviceConfig& sd) {
            "Max deg/sec <input name='stspd' type='number' step='0.1' value='" + String(sd.stepper.maxDegPerSec) + "'><br><br>"
            "<label><input type='checkbox' name='stlim' " + String(sd.stepper.limitsEnabled ? "checked" : "") + ">Limits</label> "
            "Min <input name='stmin' type='number' step='0.1' value='" + String(sd.stepper.minDeg) + "'> "
-           "Max <input name='stmax' type='number' step='0.1' value='" + String(sd.stepper.maxDeg) + "'><br><br>"
-           "Home offset (steps) <input name='sthomeofs' type='number' value='" + String(sd.stepper.homeOffsetSteps) + "'><br><br>"
-           "<label><input type='checkbox' name='sthomeen' " + String(sd.stepper.homeSwitchEnabled ? "checked" : "") + ">Home/zero switch enabled</label> "
-           "Pin <input name='sthomepin' type='number' value='" + String(sd.stepper.homeSwitchPin == 255 ? -1 : sd.stepper.homeSwitchPin) + "'> "
-           "<label><input type='checkbox' name='sthomeal' " + String(sd.stepper.homeSwitchActiveLow ? "checked" : "") + ">Active low</label></fieldset><br>";
+           "Max <input name='stmax' type='number' step='0.1' value='" + String(sd.stepper.maxDeg) + "'></fieldset><br>";
       break;
     case SUBDEVICE_DC_MOTOR:
       s += "<fieldset><legend>DC Motor</legend>DIR <input name='dcdir' type='number' value='" + String(sd.dc.dirPin) + "'> "
@@ -151,9 +147,6 @@ static void renderSubdeviceForm(String& s, uint8_t i) {
 
   s += "<button type='submit'>Save Subdevice</button> ";
   s += "<a href='/subdevices/test?id=" + String(i) + "'>Run Test</a> | ";
-  if (sd.type == SUBDEVICE_STEPPER) {
-    s += "<a href='/subdevices/homezero?id=" + String(i) + "'>Home/Zero</a> | ";
-  }
   s += "<a href='/subdevices/delete?id=" + String(i) + "' onclick=\"return confirm('Delete subdevice?');\">Delete</a>";
   s += "</form></details>";
 }
@@ -240,11 +233,6 @@ static void handleUpdateSubdevice() {
     sd.stepper.limitsEnabled = server.hasArg("stlim");
     sd.stepper.minDeg = server.arg("stmin").toFloat();
     sd.stepper.maxDeg = server.arg("stmax").toFloat();
-    sd.stepper.homeOffsetSteps = server.arg("sthomeofs").toInt();
-    sd.stepper.homeSwitchEnabled = server.hasArg("sthomeen");
-    int homePin = server.arg("sthomepin").toInt();
-    sd.stepper.homeSwitchPin = (homePin < 0) ? 255 : (uint8_t)homePin;
-    sd.stepper.homeSwitchActiveLow = server.hasArg("sthomeal");
   } else if (sd.type == SUBDEVICE_DC_MOTOR) {
     sd.dc.dirPin = (uint8_t)server.arg("dcdir").toInt();
     sd.dc.pwmPin = (uint8_t)server.arg("dcpwm").toInt();
@@ -297,16 +285,6 @@ static void handleTestSubdevice() {
   server.send(303);
 }
 
-static void handleHomeZeroSubdevice() {
-  int idx = server.arg("id").toInt();
-  if (!homeZeroSubdevice((uint8_t)idx)) {
-    server.send(400, "text/plain", "Invalid id or non-stepper subdevice");
-    return;
-  }
-  server.sendHeader("Location", "/subdevices");
-  server.send(303);
-}
-
 void setupWeb() {
   server.on("/", handleRoot);
   server.on("/wifi", handleWifi);
@@ -319,7 +297,6 @@ void setupWeb() {
   server.on("/subdevices/update", handleUpdateSubdevice);
   server.on("/subdevices/delete", handleDeleteSubdevice);
   server.on("/subdevices/test", handleTestSubdevice);
-  server.on("/subdevices/homezero", handleHomeZeroSubdevice);
 
   server.begin();
 }

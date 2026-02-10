@@ -13,11 +13,6 @@ struct StepperState {
   int32_t target = 0;
   uint8_t phase = 0;
   uint32_t nextStepDueUs = 0;
-  uint8_t lastPosByte = 0;
-  bool posInitialized = false;
-  bool velocityMode = false;
-  int8_t velocityDir = 1;
-  uint32_t velocityIntervalUs = 4000;
 };
 
 static StepperState stepperStates[MAX_SUBDEVICES];
@@ -86,12 +81,6 @@ static void initStepperDevice(uint8_t i) {
   digitalWrite(sd.stepper.in2, LOW);
   digitalWrite(sd.stepper.in3, LOW);
   digitalWrite(sd.stepper.in4, LOW);
-  if (sd.stepper.homeSwitchEnabled && sd.stepper.homeSwitchPin != 255) {
-    pinMode(sd.stepper.homeSwitchPin, sd.stepper.homeSwitchActiveLow ? INPUT_PULLUP : INPUT);
-  }
-  stepperStates[i].velocityMode = false;
-  stepperStates[i].velocityDir = 1;
-  stepperStates[i].velocityIntervalUs = 4000;
 }
 
 static void initDcDevice(uint8_t i) {
@@ -155,44 +144,17 @@ void initSubdevices() {
 static void tickStepper(uint8_t i) {
   auto& sd = cfg.subdevices[i];
   auto& st = stepperStates[i];
-
-  if (sd.stepper.homeSwitchEnabled && sd.stepper.homeSwitchPin != 255) {
-    int level = digitalRead(sd.stepper.homeSwitchPin);
-    bool triggered = sd.stepper.homeSwitchActiveLow ? (level == LOW) : (level == HIGH);
-    if (triggered) {
-      st.current = sd.stepper.homeOffsetSteps;
-      st.target = st.current;
-      st.velocityMode = false;
-      digitalWrite(sd.stepper.in1, LOW);
-      digitalWrite(sd.stepper.in2, LOW);
-      digitalWrite(sd.stepper.in3, LOW);
-      digitalWrite(sd.stepper.in4, LOW);
-      return;
-    }
-  }
-
-  if (!st.velocityMode && st.current == st.target) return;
+  if (st.current == st.target) return;
   uint32_t nowUs = micros();
   if ((int32_t)(nowUs - st.nextStepDueUs) < 0) return;
 
-  uint32_t intervalUs = st.velocityMode ? st.velocityIntervalUs : 0;
-  if (!st.velocityMode) {
-    float stepsPerDeg = (float)sd.stepper.stepsPerRev / 360.0f;
-    float maxStepsPerSec = sd.stepper.maxDegPerSec * stepsPerDeg;
-    if (maxStepsPerSec < 1.0f) maxStepsPerSec = 1.0f;
-    intervalUs = (uint32_t)(1000000.0f / maxStepsPerSec);
-  }
+  float stepsPerDeg = (float)sd.stepper.stepsPerRev / 360.0f;
+  float maxStepsPerSec = sd.stepper.maxDegPerSec * stepsPerDeg;
+  if (maxStepsPerSec < 1.0f) maxStepsPerSec = 1.0f;
+  uint32_t intervalUs = (uint32_t)(1000000.0f / maxStepsPerSec);
   if (intervalUs < 300) intervalUs = 300;
 
-  if (st.velocityMode) {
-    if (st.velocityDir >= 0) {
-      st.current++;
-      st.phase = (st.phase + 1) & 0x07;
-    } else {
-      st.current--;
-      st.phase = (st.phase + 7) & 0x07;
-    }
-  } else if (st.target > st.current) {
+  if (st.target > st.current) {
     st.current++;
     st.phase = (st.phase + 1) & 0x07;
   } else {
@@ -228,7 +190,7 @@ void applySacnToSubdevices(uint16_t universe, const uint8_t* dmxSlots, uint16_t 
       case SUBDEVICE_DC_MOTOR: {
         int16_t signedCmd = (int16_t)((int32_t)readU16(dmxSlots, sd.map.startAddr) - 32768);
         int32_t v = signedCmd;
-        if (abs(v) <= 1) v = 0;
+        if (abs(v) <= sd.dc.deadband) v = 0;
         if (v == 0) { ledcWrite(sd.dc.pwmChannel, 0); break; }
         bool fwd = (v > 0);
         uint32_t mag = (uint32_t)abs(v);
@@ -240,49 +202,14 @@ void applySacnToSubdevices(uint16_t universe, const uint8_t* dmxSlots, uint16_t 
         break;
       }
       case SUBDEVICE_STEPPER: {
-        uint8_t angleByte = dmxSlots[sd.map.startAddr - 1];
-        uint8_t speedByte = dmxSlots[sd.map.startAddr];
-        auto& st = stepperStates[i];
-
-        if (speedByte == 0) {
-          st.velocityMode = false;
-
-          if (!st.posInitialized) {
-            st.lastPosByte = angleByte;
-            st.posInitialized = true;
-          }
-
-          int16_t delta = (int16_t)angleByte - (int16_t)st.lastPosByte;
-          if (delta < 0) delta += 256;
-          st.lastPosByte = angleByte;
-
-          if (delta != 0) {
-            float stepsPerTurnByte = (float)sd.stepper.stepsPerRev / 255.0f;
-            st.target += (int32_t)lroundf((float)delta * stepsPerTurnByte);
-          }
-        } else {
-          st.velocityMode = true;
-          uint8_t mag = 0;
-          if (speedByte <= 127) {
-            // 1..127 => clockwise fast..slow
-            st.velocityDir = 1;
-            mag = (uint8_t)(128 - speedByte);
-          } else {
-            // 128..255 => counter-clockwise slow..fast
-            st.velocityDir = -1;
-            mag = (uint8_t)(speedByte - 127);
-          }
-
-          float speedNorm = (float)mag / 127.0f;
-          if (speedNorm < 0.05f) speedNorm = 0.05f;
-          float stepsPerDeg = (float)sd.stepper.stepsPerRev / 360.0f;
-          float maxStepsPerSec = sd.stepper.maxDegPerSec * stepsPerDeg;
-          if (maxStepsPerSec < 1.0f) maxStepsPerSec = 1.0f;
-          float commandedStepsPerSec = maxStepsPerSec * speedNorm;
-          if (commandedStepsPerSec < 1.0f) commandedStepsPerSec = 1.0f;
-          st.velocityIntervalUs = (uint32_t)(1000000.0f / commandedStepsPerSec);
-          if (st.velocityIntervalUs < 300) st.velocityIntervalUs = 300;
+        uint16_t raw = readU16(dmxSlots, sd.map.startAddr);
+        float deg = ((float)raw / 65535.0f) * 360.0f;
+        if (sd.stepper.limitsEnabled) {
+          if (deg < sd.stepper.minDeg) deg = sd.stepper.minDeg;
+          if (deg > sd.stepper.maxDeg) deg = sd.stepper.maxDeg;
         }
+        float stepsPerDeg = (float)sd.stepper.stepsPerRev / 360.0f;
+        stepperStates[i].target = (int32_t)lroundf(deg * stepsPerDeg) + sd.stepper.homeOffsetSteps;
         break;
       }
       case SUBDEVICE_RELAY: {
@@ -388,18 +315,6 @@ bool runSubdeviceTest(uint8_t index) {
     default:
       return false;
   }
-}
-
-bool homeZeroSubdevice(uint8_t index) {
-  if (index >= cfg.subdeviceCount) return false;
-  auto& sd = cfg.subdevices[index];
-  if (sd.type != SUBDEVICE_STEPPER) return false;
-  auto& st = stepperStates[index];
-  st.current = sd.stepper.homeOffsetSteps;
-  st.target = st.current;
-  st.velocityMode = false;
-  st.posInitialized = false;
-  return true;
 }
 
 uint16_t subdeviceMinUniverse() {

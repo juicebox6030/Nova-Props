@@ -33,9 +33,6 @@ struct StepperRuntimeConfig {
   float minDeg = 0.0f;
   float maxDeg = 360.0f;
   int32_t homeOffsetSteps = 0;
-  bool homeSwitchEnabled = false;
-  uint8_t homeSwitchPin = 255;
-  bool homeSwitchActiveLow = true;
 };
 
 struct DcMotorRuntimeConfig {

@@ -61,12 +61,3 @@ This allows smaller binaries for constrained targets.
 - Probe event output (`/api/events`) to verify intended hardware actions
 
 Use this for rapid behavior checks before firmware flashing.
-
-
-## Stepper command model (V2)
-
-- Each stepper consumes 2 DMX slots.
-- Slot 1 is the `0..255 -> 0..360°` position reference channel.
-- Slot 2 is mode/speed: `0` for position mode, non-zero for continuous velocity mode.
-- Velocity mode supports CW and CCW bands and keeps state between packets; DMX loss handling remains centralized in the sACN layer.
-- Optional per-stepper home/zero switch pin (active-high/active-low) is part of runtime config and can zero state immediately.

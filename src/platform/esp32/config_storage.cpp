@@ -33,8 +33,7 @@ void sanity() {
     if (sd.stepper.stepsPerRev < 200) sd.stepper.stepsPerRev = 200;
     if (sd.stepper.stepsPerRev > 20000) sd.stepper.stepsPerRev = 20000;
     if (sd.stepper.maxDegPerSec < 1.0f) sd.stepper.maxDegPerSec = 1.0f;
-    if (sd.stepper.maxDegPerSec > 5000.0f) sd.stepper.maxDegPerSec = 5000.0f;
-    if (sd.stepper.homeSwitchEnabled && sd.stepper.homeSwitchPin == 255) sd.stepper.homeSwitchEnabled = false;
+    if (sd.stepper.maxDegPerSec > 720.0f) sd.stepper.maxDegPerSec = 720.0f;
     if (sd.stepper.minDeg > sd.stepper.maxDeg) {
       float t = sd.stepper.minDeg;
       sd.stepper.minDeg = sd.stepper.maxDeg;
@@ -70,9 +69,6 @@ static void loadSubdevice(JsonObject obj, SubdeviceConfig& sd) {
   sd.stepper.minDeg = obj["stepper"]["minDeg"] | sd.stepper.minDeg;
   sd.stepper.maxDeg = obj["stepper"]["maxDeg"] | sd.stepper.maxDeg;
   sd.stepper.homeOffsetSteps = obj["stepper"]["homeOffsetSteps"] | sd.stepper.homeOffsetSteps;
-  sd.stepper.homeSwitchEnabled = obj["stepper"]["homeSwitchEnabled"] | sd.stepper.homeSwitchEnabled;
-  sd.stepper.homeSwitchPin = obj["stepper"]["homeSwitchPin"] | sd.stepper.homeSwitchPin;
-  sd.stepper.homeSwitchActiveLow = obj["stepper"]["homeSwitchActiveLow"] | sd.stepper.homeSwitchActiveLow;
 
   sd.relay.pin = obj["relay"]["pin"] | sd.relay.pin;
   sd.relay.activeHigh = obj["relay"]["activeHigh"] | sd.relay.activeHigh;
@@ -111,9 +107,6 @@ static void saveSubdevice(JsonArray arr, const SubdeviceConfig& sd) {
   obj["stepper"]["minDeg"] = sd.stepper.minDeg;
   obj["stepper"]["maxDeg"] = sd.stepper.maxDeg;
   obj["stepper"]["homeOffsetSteps"] = sd.stepper.homeOffsetSteps;
-  obj["stepper"]["homeSwitchEnabled"] = sd.stepper.homeSwitchEnabled;
-  obj["stepper"]["homeSwitchPin"] = sd.stepper.homeSwitchPin;
-  obj["stepper"]["homeSwitchActiveLow"] = sd.stepper.homeSwitchActiveLow;
 
   obj["relay"]["pin"] = sd.relay.pin;
   obj["relay"]["activeHigh"] = sd.relay.activeHigh;

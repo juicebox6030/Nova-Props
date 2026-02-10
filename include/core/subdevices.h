@@ -17,7 +17,6 @@ uint8_t subdeviceSlotWidth(const SubdeviceConfig& sd);
 bool addSubdevice(SubdeviceType type, const String& name);
 bool deleteSubdevice(uint8_t index);
 bool runSubdeviceTest(uint8_t index);
-bool homeZeroSubdevice(uint8_t index);
 
 String subdeviceTypeName(SubdeviceType type);
 

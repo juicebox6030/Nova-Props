@@ -120,15 +120,3 @@ See full guide in `docs/linux-testing.md`.
 ## Status
 
 This repo is currently structured around `platform/esp32` implementations with platform-neutral seams in place. Extending to more platforms should happen by adding new platform implementations behind existing `include/platform/*.h` wrappers.
-
-## Stepper sACN profile (firmware)
-
-- CH1: `0..255` maps to `0..360°` position reference.
-- CH2: `0` = position mode (CH1 tracking).
-- CH2: `1..127` = clockwise velocity (fast to slow).
-- CH2: `128..255` = counter-clockwise velocity (slow to fast).
-- Optional per-stepper home/zero switch is configurable at runtime, plus a Web UI Home/Zero action.
-
-## DC motor note
-
-- DC sACN command now uses a 1-count dead zone at center (`0`) and still applies a minimum PWM of `1` when movement is commanded.
