@@ -24,6 +24,7 @@ struct DcOutputState {
   uint16_t currentDuty = 0;
   bool targetForward = true;
   uint16_t targetDuty = 0;
+  int32_t filteredSignedDuty = 0;
   uint32_t lastRampMs = 0;
   bool initialized = false;
 };
@@ -152,6 +153,7 @@ static void setDcOutput(uint8_t i, bool forward, uint16_t duty) {
   if (state.currentForward == forward && state.currentDuty == duty) return;
   state.currentForward = forward;
   state.currentDuty = duty;
+  state.filteredSignedDuty = forward ? (int32_t)duty : -(int32_t)duty;
   digitalWrite(sd.dc.dirPin, forward ? HIGH : LOW);
   ledcWrite(sd.dc.pwmChannel, (uint8_t)duty);
 }
@@ -162,31 +164,22 @@ static void setDcTarget(uint8_t i, bool forward, uint16_t duty) {
   state.targetDuty = duty;
 }
 
-static uint16_t slewDutyToward(uint16_t current, uint16_t target, uint16_t step) {
-  if (current == target || step == 0) return current;
-  if (current < target) {
-    uint32_t v = (uint32_t)current + step;
-    return (uint16_t)(v > target ? target : v);
-  }
-  return (uint16_t)((current - target) > step ? (current - step) : target);
-}
-
 static void tickDc(uint8_t i) {
   auto& sd = cfg.subdevices[i];
   auto& state = dcOutputStates[i];
 
   uint32_t nowMs = millis();
+  int32_t currentSignedDuty = state.currentForward ? (int32_t)state.currentDuty : -(int32_t)state.currentDuty;
+  int32_t targetSignedDuty = state.targetForward ? (int32_t)state.targetDuty : -(int32_t)state.targetDuty;
+
   if (!state.initialized) {
+    state.filteredSignedDuty = currentSignedDuty;
     state.lastRampMs = nowMs;
     state.initialized = true;
   }
 
-  if (state.currentForward == state.targetForward && state.currentDuty == state.targetDuty) {
-    state.lastRampMs = nowMs;
-    return;
-  }
-
   if (sd.dc.rampBufferMs == 0) {
+    state.filteredSignedDuty = targetSignedDuty;
     setDcOutput(i, state.targetForward, state.targetDuty);
     state.lastRampMs = nowMs;
     return;
@@ -195,23 +188,24 @@ static void tickDc(uint8_t i) {
   uint32_t elapsedMs = nowMs - state.lastRampMs;
   if (elapsedMs == 0) return;
 
-  uint32_t rampStep = ((uint32_t)sd.dc.maxPwm * elapsedMs + sd.dc.rampBufferMs - 1) / sd.dc.rampBufferMs;
-  if (rampStep < 1) rampStep = 1;
-  if (rampStep > sd.dc.maxPwm) rampStep = sd.dc.maxPwm;
+  int32_t delta = targetSignedDuty - state.filteredSignedDuty;
+  if (delta != 0) {
+    int32_t step = (int32_t)(((int64_t)delta * (int64_t)elapsedMs) / (int64_t)sd.dc.rampBufferMs);
+    if (step == 0) step = (delta > 0) ? 1 : -1;
+    state.filteredSignedDuty += step;
 
-  if (state.currentForward != state.targetForward && state.currentDuty > 0) {
-    uint16_t nextDuty = slewDutyToward(state.currentDuty, 0, (uint16_t)rampStep);
-    setDcOutput(i, state.currentForward, nextDuty);
-    state.lastRampMs = nowMs;
-    return;
+    if ((delta > 0 && state.filteredSignedDuty > targetSignedDuty) ||
+        (delta < 0 && state.filteredSignedDuty < targetSignedDuty)) {
+      state.filteredSignedDuty = targetSignedDuty;
+    }
   }
 
-  if (state.currentForward != state.targetForward && state.currentDuty == 0) {
-    setDcOutput(i, state.targetForward, 0);
-  }
+  int32_t filtered = state.filteredSignedDuty;
+  bool nextForward = (filtered >= 0);
+  uint16_t nextDuty = (uint16_t)abs(filtered);
+  if (nextDuty > sd.dc.maxPwm) nextDuty = sd.dc.maxPwm;
 
-  uint16_t nextDuty = slewDutyToward(state.currentDuty, state.targetDuty, (uint16_t)rampStep);
-  setDcOutput(i, state.targetForward, nextDuty);
+  setDcOutput(i, nextForward, nextDuty);
   state.lastRampMs = nowMs;
 }
 
