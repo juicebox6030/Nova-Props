@@ -62,6 +62,7 @@ struct DcMotorRuntimeConfig {
   uint8_t pwmBits = 8;
   int16_t deadband = 900;
   uint8_t maxPwm = 255;
+  uint16_t rampBufferMs = 120;
 };
 
 struct RelayRuntimeConfig {
