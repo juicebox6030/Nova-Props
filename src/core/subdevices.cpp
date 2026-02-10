@@ -20,8 +20,13 @@ struct StepperState {
 };
 
 struct DcOutputState {
-  bool forward = true;
-  uint16_t duty = 0;
+  bool currentForward = true;
+  uint16_t currentDuty = 0;
+  bool targetForward = true;
+  uint16_t targetDuty = 0;
+  int32_t filteredSignedDuty = 0;
+  uint32_t lastRampMs = 0;
+  bool initialized = false;
 };
 
 struct PixelCommand {
@@ -145,11 +150,63 @@ static void setLedOutput(uint8_t i, bool on) {
 static void setDcOutput(uint8_t i, bool forward, uint16_t duty) {
   auto& sd = cfg.subdevices[i];
   auto& state = dcOutputStates[i];
-  if (state.forward == forward && state.duty == duty) return;
-  state.forward = forward;
-  state.duty = duty;
+  if (state.currentForward == forward && state.currentDuty == duty) return;
+  state.currentForward = forward;
+  state.currentDuty = duty;
+  state.filteredSignedDuty = forward ? (int32_t)duty : -(int32_t)duty;
   digitalWrite(sd.dc.dirPin, forward ? HIGH : LOW);
   ledcWrite(sd.dc.pwmChannel, (uint8_t)duty);
+}
+
+static void setDcTarget(uint8_t i, bool forward, uint16_t duty) {
+  auto& state = dcOutputStates[i];
+  state.targetForward = forward;
+  state.targetDuty = duty;
+}
+
+static void tickDc(uint8_t i) {
+  auto& sd = cfg.subdevices[i];
+  auto& state = dcOutputStates[i];
+
+  uint32_t nowMs = millis();
+  int32_t currentSignedDuty = state.currentForward ? (int32_t)state.currentDuty : -(int32_t)state.currentDuty;
+  int32_t targetSignedDuty = state.targetForward ? (int32_t)state.targetDuty : -(int32_t)state.targetDuty;
+
+  if (!state.initialized) {
+    state.filteredSignedDuty = currentSignedDuty;
+    state.lastRampMs = nowMs;
+    state.initialized = true;
+  }
+
+  if (sd.dc.rampBufferMs == 0) {
+    state.filteredSignedDuty = targetSignedDuty;
+    setDcOutput(i, state.targetForward, state.targetDuty);
+    state.lastRampMs = nowMs;
+    return;
+  }
+
+  uint32_t elapsedMs = nowMs - state.lastRampMs;
+  if (elapsedMs == 0) return;
+
+  int32_t delta = targetSignedDuty - state.filteredSignedDuty;
+  if (delta != 0) {
+    int32_t step = (int32_t)(((int64_t)delta * (int64_t)elapsedMs) / (int64_t)sd.dc.rampBufferMs);
+    if (step == 0) step = (delta > 0) ? 1 : -1;
+    state.filteredSignedDuty += step;
+
+    if ((delta > 0 && state.filteredSignedDuty > targetSignedDuty) ||
+        (delta < 0 && state.filteredSignedDuty < targetSignedDuty)) {
+      state.filteredSignedDuty = targetSignedDuty;
+    }
+  }
+
+  int32_t filtered = state.filteredSignedDuty;
+  bool nextForward = (filtered >= 0);
+  uint16_t nextDuty = (uint16_t)abs(filtered);
+  if (nextDuty > sd.dc.maxPwm) nextDuty = sd.dc.maxPwm;
+
+  setDcOutput(i, nextForward, nextDuty);
+  state.lastRampMs = nowMs;
 }
 
 static void applyStepperAbsoluteCommand(uint8_t i, int32_t targetWithinRev) {
@@ -264,6 +321,7 @@ static void initDcDevice(uint8_t i) {
   ledcAttachPin(sd.dc.pwmPin, sd.dc.pwmChannel);
   ledcWrite(sd.dc.pwmChannel, 0);
   dcOutputStates[i] = DcOutputState();
+  dcOutputStates[i].initialized = false;
   dcTestStates[i] = false;
 }
 
@@ -360,6 +418,7 @@ void tickSubdevices() {
   for (uint8_t i = 0; i < cfg.subdeviceCount && i < MAX_SUBDEVICES; i++) {
     if (!cfg.subdevices[i].enabled) continue;
     if (cfg.subdevices[i].type == SUBDEVICE_STEPPER) tickStepper(i);
+    if (cfg.subdevices[i].type == SUBDEVICE_DC_MOTOR) tickDc(i);
   }
 }
 
@@ -378,13 +437,13 @@ void applySacnToSubdevices(uint16_t universe, const uint8_t* dmxSlots, uint16_t 
         int16_t signedCmd = (int16_t)((int32_t)raw - 32768);
         int32_t v = signedCmd;
         if (abs(v) <= sd.dc.deadband || raw == 0) v = 0;
-        if (v == 0) { setDcOutput(i, true, 0); break; }
+        if (v == 0) { setDcTarget(i, true, 0); break; }
         bool fwd = (v > 0);
         uint32_t mag = (uint32_t)abs(v);
         uint32_t out = (mag * sd.dc.maxPwm) / 32768;
         if (out < 1) out = 1;
         if (out > sd.dc.maxPwm) out = sd.dc.maxPwm;
-        setDcOutput(i, fwd, (uint16_t)out);
+        setDcTarget(i, fwd, (uint16_t)out);
         break;
       }
       case SUBDEVICE_STEPPER: {
@@ -448,6 +507,7 @@ void stopSubdevicesOnLoss() {
     if (!sd.enabled) continue;
     switch (sd.type) {
       case SUBDEVICE_DC_MOTOR:
+        setDcTarget(i, true, 0);
         setDcOutput(i, true, 0);
         break;
       case SUBDEVICE_RELAY:
@@ -487,8 +547,10 @@ bool runSubdeviceTest(uint8_t index) {
     case SUBDEVICE_DC_MOTOR: {
       dcTestStates[index] = !dcTestStates[index];
       if (!dcTestStates[index]) {
+        setDcTarget(index, true, 0);
         setDcOutput(index, true, 0);
       } else {
+        setDcTarget(index, true, (uint16_t)(sd.dc.maxPwm / 2));
         setDcOutput(index, true, (uint16_t)(sd.dc.maxPwm / 2));
       }
       return true;
@@ -576,6 +638,7 @@ bool deleteSubdevice(uint8_t index) {
   for (uint8_t i = index; i + 1 < cfg.subdeviceCount; i++) {
     cfg.subdevices[i] = cfg.subdevices[i + 1];
     stepperStates[i] = stepperStates[i + 1];
+    dcOutputStates[i] = dcOutputStates[i + 1];
     relayStates[i] = relayStates[i + 1];
     ledStates[i] = ledStates[i + 1];
     dcTestStates[i] = dcTestStates[i + 1];
