@@ -40,6 +40,46 @@ static String typeOptions(SubdeviceType selected) {
   return s;
 }
 
+static void renderTypeSpecificFields(String& s, const SubdeviceConfig& sd) {
+  switch (sd.type) {
+    case SUBDEVICE_STEPPER:
+      s += "<fieldset><legend>Stepper</legend>IN1 <input name='st1' type='number' value='" + String(sd.stepper.in1) + "'> "
+           "IN2 <input name='st2' type='number' value='" + String(sd.stepper.in2) + "'> "
+           "IN3 <input name='st3' type='number' value='" + String(sd.stepper.in3) + "'> "
+           "IN4 <input name='st4' type='number' value='" + String(sd.stepper.in4) + "'><br><br>"
+           "Steps/rev <input name='stspr' type='number' value='" + String(sd.stepper.stepsPerRev) + "'> "
+           "Max deg/sec <input name='stspd' type='number' step='0.1' value='" + String(sd.stepper.maxDegPerSec) + "'><br><br>"
+           "<label><input type='checkbox' name='stlim' " + String(sd.stepper.limitsEnabled ? "checked" : "") + ">Limits</label> "
+           "Min <input name='stmin' type='number' step='0.1' value='" + String(sd.stepper.minDeg) + "'> "
+           "Max <input name='stmax' type='number' step='0.1' value='" + String(sd.stepper.maxDeg) + "'></fieldset><br>";
+      break;
+    case SUBDEVICE_DC_MOTOR:
+      s += "<fieldset><legend>DC Motor</legend>DIR <input name='dcdir' type='number' value='" + String(sd.dc.dirPin) + "'> "
+           "PWM <input name='dcpwm' type='number' value='" + String(sd.dc.pwmPin) + "'> "
+           "CH <input name='dcch' type='number' value='" + String(sd.dc.pwmChannel) + "'><br><br>"
+           "Hz <input name='dchz' type='number' value='" + String(sd.dc.pwmHz) + "'> "
+           "Bits <input name='dcbits' type='number' value='" + String(sd.dc.pwmBits) + "'> "
+           "Deadband <input name='dcdb' type='number' value='" + String(sd.dc.deadband) + "'> "
+           "MaxPWM <input name='dcmx' type='number' value='" + String(sd.dc.maxPwm) + "'></fieldset><br>";
+      break;
+    case SUBDEVICE_RELAY:
+      s += "<fieldset><legend>Relay</legend>Relay pin <input name='rlpin' type='number' value='" + String(sd.relay.pin) + "'> "
+           "Relay active high <input type='checkbox' name='rlah' " + String(sd.relay.activeHigh ? "checked" : "") + "></fieldset><br>";
+      break;
+    case SUBDEVICE_LED:
+      s += "<fieldset><legend>LED</legend>LED pin <input name='ledpin' type='number' value='" + String(sd.led.pin) + "'> "
+           "LED active high <input type='checkbox' name='ledah' " + String(sd.led.activeHigh ? "checked" : "") + "></fieldset><br>";
+      break;
+    case SUBDEVICE_PIXELS:
+      s += "<fieldset><legend>Pixel Strip</legend>Pixel pin <input name='pxpin' type='number' value='" + String(sd.pixels.pin) + "'> "
+           "Count <input name='pxcount' type='number' value='" + String(sd.pixels.count) + "'> "
+           "Brightness <input name='pxb' type='number' value='" + String(sd.pixels.brightness) + "'></fieldset><br>";
+      break;
+    default:
+      break;
+  }
+}
+
 static void handleRoot() {
   String s = htmlHead(platformDeviceName());
   s += "<h2>" + platformDeviceName() + "</h2>";
@@ -103,33 +143,10 @@ static void renderSubdeviceForm(String& s, uint8_t i) {
   s += "Universe: <input name='u' type='number' min='1' max='63999' value='" + String(sd.map.universe) + "'> &nbsp;";
   s += "Start addr: <input name='a' type='number' min='1' max='512' value='" + String(sd.map.startAddr) + "'><br><br>";
 
-  s += "<fieldset><legend>Stepper</legend>IN1 <input name='st1' type='number' value='" + String(sd.stepper.in1) + "'> "
-       "IN2 <input name='st2' type='number' value='" + String(sd.stepper.in2) + "'> "
-       "IN3 <input name='st3' type='number' value='" + String(sd.stepper.in3) + "'> "
-       "IN4 <input name='st4' type='number' value='" + String(sd.stepper.in4) + "'><br><br>"
-       "Steps/rev <input name='stspr' type='number' value='" + String(sd.stepper.stepsPerRev) + "'> "
-       "Max deg/sec <input name='stspd' type='number' step='0.1' value='" + String(sd.stepper.maxDegPerSec) + "'><br><br>"
-       "<label><input type='checkbox' name='stlim' " + String(sd.stepper.limitsEnabled ? "checked" : "") + ">Limits</label> "
-       "Min <input name='stmin' type='number' step='0.1' value='" + String(sd.stepper.minDeg) + "'> "
-       "Max <input name='stmax' type='number' step='0.1' value='" + String(sd.stepper.maxDeg) + "'></fieldset><br>";
-
-  s += "<fieldset><legend>DC Motor</legend>DIR <input name='dcdir' type='number' value='" + String(sd.dc.dirPin) + "'> "
-       "PWM <input name='dcpwm' type='number' value='" + String(sd.dc.pwmPin) + "'> "
-       "CH <input name='dcch' type='number' value='" + String(sd.dc.pwmChannel) + "'><br><br>"
-       "Hz <input name='dchz' type='number' value='" + String(sd.dc.pwmHz) + "'> "
-       "Bits <input name='dcbits' type='number' value='" + String(sd.dc.pwmBits) + "'> "
-       "Deadband <input name='dcdb' type='number' value='" + String(sd.dc.deadband) + "'> "
-       "MaxPWM <input name='dcmx' type='number' value='" + String(sd.dc.maxPwm) + "'></fieldset><br>";
-
-  s += "<fieldset><legend>Relay / LED / Pixels</legend>Relay pin <input name='rlpin' type='number' value='" + String(sd.relay.pin) + "'> "
-       "Relay active high <input type='checkbox' name='rlah' " + String(sd.relay.activeHigh ? "checked" : "") + "><br><br>"
-       "LED pin <input name='ledpin' type='number' value='" + String(sd.led.pin) + "'> "
-       "LED active high <input type='checkbox' name='ledah' " + String(sd.led.activeHigh ? "checked" : "") + "><br><br>"
-       "Pixel pin <input name='pxpin' type='number' value='" + String(sd.pixels.pin) + "'> "
-       "Count <input name='pxcount' type='number' value='" + String(sd.pixels.count) + "'> "
-       "Brightness <input name='pxb' type='number' value='" + String(sd.pixels.brightness) + "'></fieldset><br>";
+  renderTypeSpecificFields(s, sd);
 
   s += "<button type='submit'>Save Subdevice</button> ";
+  s += "<a href='/subdevices/test?id=" + String(i) + "'>Run Test</a> | ";
   s += "<a href='/subdevices/delete?id=" + String(i) + "' onclick=\"return confirm('Delete subdevice?');\">Delete</a>";
   s += "</form></details>";
 }
@@ -143,8 +160,6 @@ static void handleSubdevices() {
   s += "Name <input name='name' placeholder='optional'> ";
   s += "Type <select name='type'>" + typeOptions(SUBDEVICE_STEPPER) + "</select> ";
   s += "<button type='submit'>Add Subdevice</button></form>";
-
-  s += "<p><b>Home button pin</b>: " + String(cfg.homeButtonPin) + "</p>";
 
   for (uint8_t i = 0; i < cfg.subdeviceCount; i++) renderSubdeviceForm(s, i);
 
@@ -206,33 +221,35 @@ static void handleUpdateSubdevice() {
   sd.map.universe = (uint16_t)server.arg("u").toInt();
   sd.map.startAddr = (uint16_t)server.arg("a").toInt();
 
-  sd.stepper.in1 = (uint8_t)server.arg("st1").toInt();
-  sd.stepper.in2 = (uint8_t)server.arg("st2").toInt();
-  sd.stepper.in3 = (uint8_t)server.arg("st3").toInt();
-  sd.stepper.in4 = (uint8_t)server.arg("st4").toInt();
-  sd.stepper.stepsPerRev = (uint16_t)server.arg("stspr").toInt();
-  sd.stepper.maxDegPerSec = server.arg("stspd").toFloat();
-  sd.stepper.limitsEnabled = server.hasArg("stlim");
-  sd.stepper.minDeg = server.arg("stmin").toFloat();
-  sd.stepper.maxDeg = server.arg("stmax").toFloat();
-
-  sd.dc.dirPin = (uint8_t)server.arg("dcdir").toInt();
-  sd.dc.pwmPin = (uint8_t)server.arg("dcpwm").toInt();
-  sd.dc.pwmChannel = (uint8_t)server.arg("dcch").toInt();
-  sd.dc.pwmHz = (uint32_t)server.arg("dchz").toInt();
-  sd.dc.pwmBits = (uint8_t)server.arg("dcbits").toInt();
-  sd.dc.deadband = (int16_t)server.arg("dcdb").toInt();
-  sd.dc.maxPwm = (uint8_t)server.arg("dcmx").toInt();
-
-  sd.relay.pin = (uint8_t)server.arg("rlpin").toInt();
-  sd.relay.activeHigh = server.hasArg("rlah");
-
-  sd.led.pin = (uint8_t)server.arg("ledpin").toInt();
-  sd.led.activeHigh = server.hasArg("ledah");
-
-  sd.pixels.pin = (uint8_t)server.arg("pxpin").toInt();
-  sd.pixels.count = (uint16_t)server.arg("pxcount").toInt();
-  sd.pixels.brightness = (uint8_t)server.arg("pxb").toInt();
+  if (sd.type == SUBDEVICE_STEPPER) {
+    sd.stepper.in1 = (uint8_t)server.arg("st1").toInt();
+    sd.stepper.in2 = (uint8_t)server.arg("st2").toInt();
+    sd.stepper.in3 = (uint8_t)server.arg("st3").toInt();
+    sd.stepper.in4 = (uint8_t)server.arg("st4").toInt();
+    sd.stepper.stepsPerRev = (uint16_t)server.arg("stspr").toInt();
+    sd.stepper.maxDegPerSec = server.arg("stspd").toFloat();
+    sd.stepper.limitsEnabled = server.hasArg("stlim");
+    sd.stepper.minDeg = server.arg("stmin").toFloat();
+    sd.stepper.maxDeg = server.arg("stmax").toFloat();
+  } else if (sd.type == SUBDEVICE_DC_MOTOR) {
+    sd.dc.dirPin = (uint8_t)server.arg("dcdir").toInt();
+    sd.dc.pwmPin = (uint8_t)server.arg("dcpwm").toInt();
+    sd.dc.pwmChannel = (uint8_t)server.arg("dcch").toInt();
+    sd.dc.pwmHz = (uint32_t)server.arg("dchz").toInt();
+    sd.dc.pwmBits = (uint8_t)server.arg("dcbits").toInt();
+    sd.dc.deadband = (int16_t)server.arg("dcdb").toInt();
+    sd.dc.maxPwm = (uint8_t)server.arg("dcmx").toInt();
+  } else if (sd.type == SUBDEVICE_RELAY) {
+    sd.relay.pin = (uint8_t)server.arg("rlpin").toInt();
+    sd.relay.activeHigh = server.hasArg("rlah");
+  } else if (sd.type == SUBDEVICE_LED) {
+    sd.led.pin = (uint8_t)server.arg("ledpin").toInt();
+    sd.led.activeHigh = server.hasArg("ledah");
+  } else if (sd.type == SUBDEVICE_PIXELS) {
+    sd.pixels.pin = (uint8_t)server.arg("pxpin").toInt();
+    sd.pixels.count = (uint16_t)server.arg("pxcount").toInt();
+    sd.pixels.brightness = (uint8_t)server.arg("pxb").toInt();
+  }
 
   sanity();
   saveConfig();
@@ -254,6 +271,16 @@ static void handleDeleteSubdevice() {
   server.send(303);
 }
 
+static void handleTestSubdevice() {
+  int idx = server.arg("id").toInt();
+  if (!runSubdeviceTest((uint8_t)idx)) {
+    server.send(400, "text/plain", "Invalid id or unsupported type");
+    return;
+  }
+  server.sendHeader("Location", "/subdevices");
+  server.send(303);
+}
+
 void setupWeb() {
   server.on("/", handleRoot);
   server.on("/wifi", handleWifi);
@@ -265,6 +292,7 @@ void setupWeb() {
   server.on("/subdevices/add", handleAddSubdevice);
   server.on("/subdevices/update", handleUpdateSubdevice);
   server.on("/subdevices/delete", handleDeleteSubdevice);
+  server.on("/subdevices/test", handleTestSubdevice);
 
   server.begin();
 }

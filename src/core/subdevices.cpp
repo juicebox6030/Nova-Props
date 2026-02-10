@@ -16,8 +16,12 @@ struct StepperState {
 };
 
 static StepperState stepperStates[MAX_SUBDEVICES];
+static bool relayStates[MAX_SUBDEVICES] = {false};
+static bool ledStates[MAX_SUBDEVICES] = {false};
+static bool dcTestStates[MAX_SUBDEVICES] = {false};
 #if USE_PIXELS
 static Adafruit_NeoPixel* pixelStrips[MAX_SUBDEVICES] = {nullptr};
+static bool pixelTestStates[MAX_SUBDEVICES] = {false};
 #endif
 
 static constexpr uint8_t HALFSEQ[8][4] = {
@@ -29,6 +33,20 @@ static uint16_t readU16(const uint8_t* dmxSlots, uint16_t addr) {
   uint16_t hi = dmxSlots[addr - 1];
   uint16_t lo = dmxSlots[addr];
   return (uint16_t)((hi << 8) | lo);
+}
+
+static void setRelayOutput(uint8_t i, bool on) {
+  auto& sd = cfg.subdevices[i];
+  relayStates[i] = on;
+  bool level = sd.relay.activeHigh ? on : !on;
+  digitalWrite(sd.relay.pin, level ? HIGH : LOW);
+}
+
+static void setLedOutput(uint8_t i, bool on) {
+  auto& sd = cfg.subdevices[i];
+  ledStates[i] = on;
+  bool level = sd.led.activeHigh ? on : !on;
+  digitalWrite(sd.led.pin, level ? HIGH : LOW);
 }
 
 uint8_t subdeviceSlotWidth(const SubdeviceConfig& sd) {
@@ -72,18 +90,19 @@ static void initDcDevice(uint8_t i) {
   ledcSetup(sd.dc.pwmChannel, sd.dc.pwmHz, sd.dc.pwmBits);
   ledcAttachPin(sd.dc.pwmPin, sd.dc.pwmChannel);
   ledcWrite(sd.dc.pwmChannel, 0);
+  dcTestStates[i] = false;
 }
 
 static void initRelayDevice(uint8_t i) {
   auto& sd = cfg.subdevices[i];
   pinMode(sd.relay.pin, OUTPUT);
-  digitalWrite(sd.relay.pin, sd.relay.activeHigh ? LOW : HIGH);
+  setRelayOutput(i, false);
 }
 
 static void initLedDevice(uint8_t i) {
   auto& sd = cfg.subdevices[i];
   pinMode(sd.led.pin, OUTPUT);
-  digitalWrite(sd.led.pin, sd.led.activeHigh ? LOW : HIGH);
+  setLedOutput(i, false);
 }
 
 #if USE_PIXELS
@@ -100,6 +119,7 @@ static void initPixelDevice(uint8_t i) {
   pixelStrips[i]->setBrightness(sd.pixels.brightness);
   pixelStrips[i]->clear();
   pixelStrips[i]->show();
+  pixelTestStates[i] = false;
 }
 #endif
 
@@ -194,14 +214,12 @@ void applySacnToSubdevices(uint16_t universe, const uint8_t* dmxSlots, uint16_t 
       }
       case SUBDEVICE_RELAY: {
         bool on = dmxSlots[sd.map.startAddr - 1] >= 128;
-        bool level = sd.relay.activeHigh ? on : !on;
-        digitalWrite(sd.relay.pin, level ? HIGH : LOW);
+        setRelayOutput(i, on);
         break;
       }
       case SUBDEVICE_LED: {
         bool on = dmxSlots[sd.map.startAddr - 1] >= 128;
-        bool level = sd.led.activeHigh ? on : !on;
-        digitalWrite(sd.led.pin, level ? HIGH : LOW);
+        setLedOutput(i, on);
         break;
       }
       case SUBDEVICE_PIXELS: {
@@ -232,10 +250,10 @@ void stopSubdevicesOnLoss() {
         ledcWrite(sd.dc.pwmChannel, 0);
         break;
       case SUBDEVICE_RELAY:
-        digitalWrite(sd.relay.pin, sd.relay.activeHigh ? LOW : HIGH);
+        setRelayOutput(i, false);
         break;
       case SUBDEVICE_LED:
-        digitalWrite(sd.led.pin, sd.led.activeHigh ? LOW : HIGH);
+        setLedOutput(i, false);
         break;
       case SUBDEVICE_PIXELS:
 #if USE_PIXELS
@@ -249,6 +267,53 @@ void stopSubdevicesOnLoss() {
       default:
         break;
     }
+  }
+}
+
+bool runSubdeviceTest(uint8_t index) {
+  if (index >= cfg.subdeviceCount) return false;
+  auto& sd = cfg.subdevices[index];
+
+  switch (sd.type) {
+    case SUBDEVICE_STEPPER: {
+      int32_t delta = (int32_t)(sd.stepper.stepsPerRev / 4);
+      stepperStates[index].target = stepperStates[index].current + delta;
+      return true;
+    }
+    case SUBDEVICE_DC_MOTOR: {
+      dcTestStates[index] = !dcTestStates[index];
+      if (!dcTestStates[index]) {
+        ledcWrite(sd.dc.pwmChannel, 0);
+      } else {
+        digitalWrite(sd.dc.dirPin, HIGH);
+        ledcWrite(sd.dc.pwmChannel, (uint8_t)(sd.dc.maxPwm / 2));
+      }
+      return true;
+    }
+    case SUBDEVICE_RELAY:
+      setRelayOutput(index, !relayStates[index]);
+      return true;
+    case SUBDEVICE_LED:
+      setLedOutput(index, !ledStates[index]);
+      return true;
+    case SUBDEVICE_PIXELS:
+#if USE_PIXELS
+      if (!pixelStrips[index]) return false;
+      pixelTestStates[index] = !pixelTestStates[index];
+      for (uint16_t p = 0; p < sd.pixels.count; p++) {
+        if (pixelTestStates[index]) {
+          pixelStrips[index]->setPixelColor(p, pixelStrips[index]->Color(255, 255, 255));
+        } else {
+          pixelStrips[index]->setPixelColor(p, pixelStrips[index]->Color(0, 0, 0));
+        }
+      }
+      pixelStrips[index]->show();
+      return true;
+#else
+      return false;
+#endif
+    default:
+      return false;
   }
 }
 
@@ -300,9 +365,13 @@ bool deleteSubdevice(uint8_t index) {
   for (uint8_t i = index; i + 1 < cfg.subdeviceCount; i++) {
     cfg.subdevices[i] = cfg.subdevices[i + 1];
     stepperStates[i] = stepperStates[i + 1];
+    relayStates[i] = relayStates[i + 1];
+    ledStates[i] = ledStates[i + 1];
+    dcTestStates[i] = dcTestStates[i + 1];
 #if USE_PIXELS
     pixelStrips[i] = pixelStrips[i + 1];
     pixelStrips[i + 1] = nullptr;
+    pixelTestStates[i] = pixelTestStates[i + 1];
 #endif
   }
   cfg.subdeviceCount--;

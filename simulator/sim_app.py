@@ -225,6 +225,31 @@ class SimApp:
         self.save()
         return True
 
+
+    def run_subdevice_test(self, idx: int) -> tuple[bool, str]:
+        if idx < 0 or idx >= len(self.cfg.subdevices):
+            return False, "Invalid subdevice id"
+        sd = self.cfg.subdevices[idx]
+
+        if sd.type == 0:
+            step = max(1, sd.stepper.stepsPerRev // 4)
+            deg = (step / max(1, sd.stepper.stepsPerRev)) * 360.0
+            self.probe.emit("stepper_test", {"name": sd.name, "delta_deg": round(deg, 3)})
+            return True, "Stepper test triggered"
+        if sd.type == 1:
+            self.probe.emit("dc_test", {"name": sd.name, "duty": max(0, min(255, sd.dc.maxPwm // 2)), "direction": 1})
+            return True, "DC motor test triggered"
+        if sd.type == 2:
+            self.probe.emit("relay_test", {"name": sd.name, "pin": sd.relay.pin, "activeHigh": sd.relay.activeHigh})
+            return True, "Relay test triggered"
+        if sd.type == 3:
+            self.probe.emit("led_test", {"name": sd.name, "pin": sd.led.pin, "activeHigh": sd.led.activeHigh})
+            return True, "LED test triggered"
+        if sd.type == 4:
+            self.probe.emit("pixels_test", {"name": sd.name, "pin": sd.pixels.pin, "count": sd.pixels.count, "brightness": sd.pixels.brightness})
+            return True, "Pixels test triggered"
+        return False, "Unsupported subdevice type"
+
     def apply_dmx(self, universe: int, slots: dict[int, int]) -> None:
         self.packet_count += 1
         self.last_universe = universe
@@ -332,11 +357,59 @@ def page_dmx(app: SimApp) -> str:
     return s
 
 
-def render_subdevice_form(i: int, sd: SubdeviceConfig) -> str:
-    en = "checked" if sd.enabled else ""
+def render_type_specific_fields(sd: SubdeviceConfig) -> str:
     stlim = "checked" if sd.stepper.limitsEnabled else ""
     rlah = "checked" if sd.relay.activeHigh else ""
     ledah = "checked" if sd.led.activeHigh else ""
+
+    if sd.type == 0:
+        return (
+            "<fieldset><legend>Stepper</legend>"
+            f"IN1 <input name='st1' type='number' value='{sd.stepper.in1}'> "
+            f"IN2 <input name='st2' type='number' value='{sd.stepper.in2}'> "
+            f"IN3 <input name='st3' type='number' value='{sd.stepper.in3}'> "
+            f"IN4 <input name='st4' type='number' value='{sd.stepper.in4}'><br><br>"
+            f"Steps/rev <input name='stspr' type='number' value='{sd.stepper.stepsPerRev}'> "
+            f"Max deg/sec <input name='stspd' type='number' step='0.1' value='{sd.stepper.maxDegPerSec}'><br><br>"
+            f"<label><input type='checkbox' name='stlim' {stlim}>Limits</label> "
+            f"Min <input name='stmin' type='number' step='0.1' value='{sd.stepper.minDeg}'> "
+            f"Max <input name='stmax' type='number' step='0.1' value='{sd.stepper.maxDeg}'></fieldset><br>"
+        )
+    if sd.type == 1:
+        return (
+            "<fieldset><legend>DC Motor</legend>"
+            f"DIR <input name='dcdir' type='number' value='{sd.dc.dirPin}'> "
+            f"PWM <input name='dcpwm' type='number' value='{sd.dc.pwmPin}'> "
+            f"CH <input name='dcch' type='number' value='{sd.dc.pwmChannel}'><br><br>"
+            f"Hz <input name='dchz' type='number' value='{sd.dc.pwmHz}'> "
+            f"Bits <input name='dcbits' type='number' value='{sd.dc.pwmBits}'> "
+            f"Deadband <input name='dcdb' type='number' value='{sd.dc.deadband}'> "
+            f"MaxPWM <input name='dcmx' type='number' value='{sd.dc.maxPwm}'></fieldset><br>"
+        )
+    if sd.type == 2:
+        return (
+            "<fieldset><legend>Relay</legend>"
+            f"Relay pin <input name='rlpin' type='number' value='{sd.relay.pin}'> "
+            f"Relay active high <input type='checkbox' name='rlah' {rlah}></fieldset><br>"
+        )
+    if sd.type == 3:
+        return (
+            "<fieldset><legend>LED</legend>"
+            f"LED pin <input name='ledpin' type='number' value='{sd.led.pin}'> "
+            f"LED active high <input type='checkbox' name='ledah' {ledah}></fieldset><br>"
+        )
+    if sd.type == 4:
+        return (
+            "<fieldset><legend>Pixel Strip</legend>"
+            f"Pixel pin <input name='pxpin' type='number' value='{sd.pixels.pin}'> "
+            f"Count <input name='pxcount' type='number' value='{sd.pixels.count}'> "
+            f"Brightness <input name='pxb' type='number' value='{sd.pixels.brightness}'></fieldset><br>"
+        )
+    return ""
+
+
+def render_subdevice_form(i: int, sd: SubdeviceConfig) -> str:
+    en = "checked" if sd.enabled else ""
 
     s = ""
     s += f"<details style='border:1px solid #ccc;padding:8px;margin:10px 0;' open><summary><b>#{i+1} {esc(sd.name)}</b> ({SUBDEVICE_TYPES.get(sd.type,'Unknown')})</summary>"
@@ -348,42 +421,10 @@ def render_subdevice_form(i: int, sd: SubdeviceConfig) -> str:
     s += f"Universe: <input name='u' type='number' min='1' max='63999' value='{sd.map.universe}'> &nbsp;"
     s += f"Start addr: <input name='a' type='number' min='1' max='512' value='{sd.map.startAddr}'><br><br>"
 
-    s += (
-        "<fieldset><legend>Stepper</legend>"
-        f"IN1 <input name='st1' type='number' value='{sd.stepper.in1}'> "
-        f"IN2 <input name='st2' type='number' value='{sd.stepper.in2}'> "
-        f"IN3 <input name='st3' type='number' value='{sd.stepper.in3}'> "
-        f"IN4 <input name='st4' type='number' value='{sd.stepper.in4}'><br><br>"
-        f"Steps/rev <input name='stspr' type='number' value='{sd.stepper.stepsPerRev}'> "
-        f"Max deg/sec <input name='stspd' type='number' step='0.1' value='{sd.stepper.maxDegPerSec}'><br><br>"
-        f"<label><input type='checkbox' name='stlim' {stlim}>Limits</label> "
-        f"Min <input name='stmin' type='number' step='0.1' value='{sd.stepper.minDeg}'> "
-        f"Max <input name='stmax' type='number' step='0.1' value='{sd.stepper.maxDeg}'></fieldset><br>"
-    )
-
-    s += (
-        "<fieldset><legend>DC Motor</legend>"
-        f"DIR <input name='dcdir' type='number' value='{sd.dc.dirPin}'> "
-        f"PWM <input name='dcpwm' type='number' value='{sd.dc.pwmPin}'> "
-        f"CH <input name='dcch' type='number' value='{sd.dc.pwmChannel}'><br><br>"
-        f"Hz <input name='dchz' type='number' value='{sd.dc.pwmHz}'> "
-        f"Bits <input name='dcbits' type='number' value='{sd.dc.pwmBits}'> "
-        f"Deadband <input name='dcdb' type='number' value='{sd.dc.deadband}'> "
-        f"MaxPWM <input name='dcmx' type='number' value='{sd.dc.maxPwm}'></fieldset><br>"
-    )
-
-    s += (
-        "<fieldset><legend>Relay / LED / Pixels</legend>"
-        f"Relay pin <input name='rlpin' type='number' value='{sd.relay.pin}'> "
-        f"Relay active high <input type='checkbox' name='rlah' {rlah}><br><br>"
-        f"LED pin <input name='ledpin' type='number' value='{sd.led.pin}'> "
-        f"LED active high <input type='checkbox' name='ledah' {ledah}><br><br>"
-        f"Pixel pin <input name='pxpin' type='number' value='{sd.pixels.pin}'> "
-        f"Count <input name='pxcount' type='number' value='{sd.pixels.count}'> "
-        f"Brightness <input name='pxb' type='number' value='{sd.pixels.brightness}'></fieldset><br>"
-    )
+    s += render_type_specific_fields(sd)
 
     s += "<button type='submit'>Save Subdevice</button> "
+    s += f"<a href='/subdevices/test?id={i}'>Run Test</a> | "
     s += f"<a href='/subdevices/delete?id={i}' onclick=\"return confirm('Delete subdevice?');\">Delete</a>"
     s += "</form></details>"
     return s
@@ -450,6 +491,13 @@ class Handler(BaseHTTPRequestHandler):
             idx = int(q.get("id", ["-1"])[0])
             self.app.delete_subdevice(idx)
             return self._redirect("/subdevices")
+        if parsed.path == "/subdevices/test":
+            q = parse_qs(parsed.query)
+            idx = int(q.get("id", ["-1"])[0])
+            ok, msg = self.app.run_subdevice_test(idx)
+            if not ok:
+                return self._send(400, msg, "text/plain")
+            return self._redirect("/subdevices")
         self._send(404, "not found", "text/plain")
 
     def do_POST(self) -> None:
@@ -494,31 +542,34 @@ class Handler(BaseHTTPRequestHandler):
             sd.map.universe = int(data.get("u", [str(sd.map.universe)])[0])
             sd.map.startAddr = int(data.get("a", [str(sd.map.startAddr)])[0])
 
-            sd.stepper.in1 = int(data.get("st1", [str(sd.stepper.in1)])[0])
-            sd.stepper.in2 = int(data.get("st2", [str(sd.stepper.in2)])[0])
-            sd.stepper.in3 = int(data.get("st3", [str(sd.stepper.in3)])[0])
-            sd.stepper.in4 = int(data.get("st4", [str(sd.stepper.in4)])[0])
-            sd.stepper.stepsPerRev = int(data.get("stspr", [str(sd.stepper.stepsPerRev)])[0])
-            sd.stepper.maxDegPerSec = float(data.get("stspd", [str(sd.stepper.maxDegPerSec)])[0])
-            sd.stepper.limitsEnabled = "stlim" in data
-            sd.stepper.minDeg = float(data.get("stmin", [str(sd.stepper.minDeg)])[0])
-            sd.stepper.maxDeg = float(data.get("stmax", [str(sd.stepper.maxDeg)])[0])
-
-            sd.dc.dirPin = int(data.get("dcdir", [str(sd.dc.dirPin)])[0])
-            sd.dc.pwmPin = int(data.get("dcpwm", [str(sd.dc.pwmPin)])[0])
-            sd.dc.pwmChannel = int(data.get("dcch", [str(sd.dc.pwmChannel)])[0])
-            sd.dc.pwmHz = int(data.get("dchz", [str(sd.dc.pwmHz)])[0])
-            sd.dc.pwmBits = int(data.get("dcbits", [str(sd.dc.pwmBits)])[0])
-            sd.dc.deadband = int(data.get("dcdb", [str(sd.dc.deadband)])[0])
-            sd.dc.maxPwm = int(data.get("dcmx", [str(sd.dc.maxPwm)])[0])
-
-            sd.relay.pin = int(data.get("rlpin", [str(sd.relay.pin)])[0])
-            sd.relay.activeHigh = "rlah" in data
-            sd.led.pin = int(data.get("ledpin", [str(sd.led.pin)])[0])
-            sd.led.activeHigh = "ledah" in data
-            sd.pixels.pin = int(data.get("pxpin", [str(sd.pixels.pin)])[0])
-            sd.pixels.count = int(data.get("pxcount", [str(sd.pixels.count)])[0])
-            sd.pixels.brightness = int(data.get("pxb", [str(sd.pixels.brightness)])[0])
+            if sd.type == 0:
+                sd.stepper.in1 = int(data.get("st1", [str(sd.stepper.in1)])[0])
+                sd.stepper.in2 = int(data.get("st2", [str(sd.stepper.in2)])[0])
+                sd.stepper.in3 = int(data.get("st3", [str(sd.stepper.in3)])[0])
+                sd.stepper.in4 = int(data.get("st4", [str(sd.stepper.in4)])[0])
+                sd.stepper.stepsPerRev = int(data.get("stspr", [str(sd.stepper.stepsPerRev)])[0])
+                sd.stepper.maxDegPerSec = float(data.get("stspd", [str(sd.stepper.maxDegPerSec)])[0])
+                sd.stepper.limitsEnabled = "stlim" in data
+                sd.stepper.minDeg = float(data.get("stmin", [str(sd.stepper.minDeg)])[0])
+                sd.stepper.maxDeg = float(data.get("stmax", [str(sd.stepper.maxDeg)])[0])
+            elif sd.type == 1:
+                sd.dc.dirPin = int(data.get("dcdir", [str(sd.dc.dirPin)])[0])
+                sd.dc.pwmPin = int(data.get("dcpwm", [str(sd.dc.pwmPin)])[0])
+                sd.dc.pwmChannel = int(data.get("dcch", [str(sd.dc.pwmChannel)])[0])
+                sd.dc.pwmHz = int(data.get("dchz", [str(sd.dc.pwmHz)])[0])
+                sd.dc.pwmBits = int(data.get("dcbits", [str(sd.dc.pwmBits)])[0])
+                sd.dc.deadband = int(data.get("dcdb", [str(sd.dc.deadband)])[0])
+                sd.dc.maxPwm = int(data.get("dcmx", [str(sd.dc.maxPwm)])[0])
+            elif sd.type == 2:
+                sd.relay.pin = int(data.get("rlpin", [str(sd.relay.pin)])[0])
+                sd.relay.activeHigh = "rlah" in data
+            elif sd.type == 3:
+                sd.led.pin = int(data.get("ledpin", [str(sd.led.pin)])[0])
+                sd.led.activeHigh = "ledah" in data
+            elif sd.type == 4:
+                sd.pixels.pin = int(data.get("pxpin", [str(sd.pixels.pin)])[0])
+                sd.pixels.count = int(data.get("pxcount", [str(sd.pixels.count)])[0])
+                sd.pixels.brightness = int(data.get("pxb", [str(sd.pixels.brightness)])[0])
 
             self.app.save()
             return self._redirect("/subdevices")
