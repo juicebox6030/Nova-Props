@@ -95,7 +95,8 @@ static void renderTypeSpecificFields(String& s, const SubdeviceConfig& sd) {
            "Hz <input name='dchz' type='number' value='" + String(sd.dc.pwmHz) + "'> "
            "Bits <input name='dcbits' type='number' value='" + String(sd.dc.pwmBits) + "'> "
            "Deadband <input name='dcdb' type='number' value='" + String(sd.dc.deadband) + "'> "
-           "MaxPWM <input name='dcmx' type='number' value='" + String(sd.dc.maxPwm) + "'></fieldset><br>";
+           "MaxPWM <input name='dcmx' type='number' value='" + String(sd.dc.maxPwm) + "'> "
+           "Ramp buffer ms <input name='dcramp' type='number' min='0' max='10000' value='" + String(sd.dc.rampBufferMs) + "'></fieldset><br>";
       break;
     case SUBDEVICE_RELAY:
       s += "<fieldset><legend>Relay</legend>Relay pin <input name='rlpin' type='number' value='" + String(sd.relay.pin) + "'> "
@@ -290,6 +291,7 @@ static void handleUpdateSubdevice() {
     sd.dc.pwmBits = (uint8_t)server.arg("dcbits").toInt();
     sd.dc.deadband = (int16_t)server.arg("dcdb").toInt();
     sd.dc.maxPwm = (uint8_t)server.arg("dcmx").toInt();
+    sd.dc.rampBufferMs = (uint16_t)server.arg("dcramp").toInt();
   } else if (sd.type == SUBDEVICE_RELAY) {
     sd.relay.pin = (uint8_t)server.arg("rlpin").toInt();
     sd.relay.activeHigh = server.hasArg("rlah");

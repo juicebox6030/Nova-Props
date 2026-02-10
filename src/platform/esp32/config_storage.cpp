@@ -29,6 +29,7 @@ void sanity() {
     if (sd.dc.pwmBits > 16) sd.dc.pwmBits = 16;
     if (sd.dc.pwmChannel > 15) sd.dc.pwmChannel = 15;
     if (sd.dc.pwmHz < 1) sd.dc.pwmHz = 1;
+    if (sd.dc.rampBufferMs > 10000) sd.dc.rampBufferMs = 10000;
     if (sd.pixels.count > 1024) sd.pixels.count = 1024;
     if (sd.stepper.stepsPerRev < 200) sd.stepper.stepsPerRev = 200;
     if (sd.stepper.stepsPerRev > 20000) sd.stepper.stepsPerRev = 20000;
@@ -63,6 +64,7 @@ static void loadSubdevice(JsonObject obj, SubdeviceConfig& sd) {
   sd.dc.pwmBits = obj["dc"]["pwmBits"] | sd.dc.pwmBits;
   sd.dc.deadband = obj["dc"]["deadband"] | sd.dc.deadband;
   sd.dc.maxPwm = obj["dc"]["maxPwm"] | sd.dc.maxPwm;
+  sd.dc.rampBufferMs = obj["dc"]["rampBufferMs"] | sd.dc.rampBufferMs;
 
   sd.stepper.driver = (StepperDriverType)((int)obj["stepper"]["driver"] | (int)sd.stepper.driver);
   sd.stepper.in1 = obj["stepper"]["in1"] | sd.stepper.in1;
@@ -109,6 +111,7 @@ static void saveSubdevice(JsonArray arr, const SubdeviceConfig& sd) {
   obj["dc"]["pwmBits"] = sd.dc.pwmBits;
   obj["dc"]["deadband"] = sd.dc.deadband;
   obj["dc"]["maxPwm"] = sd.dc.maxPwm;
+  obj["dc"]["rampBufferMs"] = sd.dc.rampBufferMs;
 
   obj["stepper"]["driver"] = (int)sd.stepper.driver;
   obj["stepper"]["in1"] = sd.stepper.in1;
