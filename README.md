@@ -93,6 +93,20 @@ Set these per environment in `platformio.ini` to fit small targets.
 
 ---
 
+
+## Stepper + DC sACN channel behavior
+
+- **DC motor (2 channels):** value `0x0000` is treated as hard OFF; non-zero commands run normally (with configured deadband and PWM scaling).
+- **Stepper (2 channels):**
+  - `CH1` (start address): absolute position `0..255` mapped to `0..360°`.
+  - `CH2` (start address + 1): velocity override
+    - `0` = stop velocity mode (hold/use CH1 target)
+    - `1..127` = clockwise fast → slow
+    - `128..255` = clockwise slow → fast
+- Stepper supports optional **home/e-stop switch** (`enabled`, `pin`, `active low`) and a **Home/Zero** action in the web UI.
+
+---
+
 ## Run Linux simulator
 
 ```bash
