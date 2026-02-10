@@ -1,15 +1,17 @@
 #include "platform/esp32/wifi_ota.h"
 
-#include <WiFi.h>
+#include "core/features.h"
+#include "platform/compat/wifi.h"
+
+#if USE_OTA
 #include <ArduinoOTA.h>
+#endif
 
 #include "core/config.h"
+#include "platform/platform_services.h"
 
 String deviceName() {
-  uint64_t mac = ESP.getEfuseMac();
-  char buf[32];
-  snprintf(buf, sizeof(buf), "ESP32-Motion-%04X", (uint16_t)(mac & 0xFFFF));
-  return String(buf);
+  return platformDeviceName();
 }
 
 bool connectSta(uint32_t timeoutMs) {
@@ -36,10 +38,12 @@ bool connectSta(uint32_t timeoutMs) {
 void startAp() {
   WiFi.mode(WIFI_AP);
   String ssid = deviceName();
-  WiFi.softAP(ssid.c_str()); // open AP for quick setup
+  WiFi.softAP(ssid.c_str());
 }
 
 void setupOta() {
+#if USE_OTA
   ArduinoOTA.setHostname(deviceName().c_str());
   ArduinoOTA.begin();
+#endif
 }

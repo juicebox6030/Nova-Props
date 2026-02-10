@@ -1,15 +1,18 @@
-#include "platform/esp32/web_ui.h"
+#include "core/web_ui.h"
 
-#include <WiFi.h>
-#include <WebServer.h>
+#include "core/features.h"
+
+#if USE_WEB_UI
+
+#include "platform/compat/http_server.h"
 
 #include "core/config.h"
 #include "core/subdevices.h"
-#include "platform/esp32/config_storage.h"
-#include "platform/esp32/dmx_sacn.h"
-#include "platform/esp32/wifi_ota.h"
+#include "platform/platform_services.h"
+#include "platform/config_storage.h"
+#include "platform/dmx_sacn.h"
 
-static WebServer server(80);
+static HttpServer server(80);
 
 static String esc(const String& in) {
   String o = in;
@@ -38,8 +41,14 @@ static String typeOptions(SubdeviceType selected) {
 }
 
 static void handleRoot() {
-  String s = htmlHead(deviceName());
-  s += "<h2>" + deviceName() + "</h2>";
+  String s = htmlHead(platformDeviceName());
+  s += "<h2>" + platformDeviceName() + "</h2>";
+  s += "<p><b>Mode:</b> ";
+  if (platformIsStaMode()) s += "STA";
+  if (platformIsApMode()) s += (platformIsStaMode() ? " + AP" : "AP");
+  if (platformIsStaMode()) s += " | <b>STA IP:</b> " + platformStaIp();
+  if (platformIsApMode()) s += " | <b>AP IP:</b> " + platformApIp();
+  s += "</p>";
   s += "<p><b>Packets:</b> " + String(sacnPacketCounter()) + " | <b>Last Universe:</b> " + String(lastUniverseSeen()) + " | <b>DMX Active:</b> " + String(dmxActive() ? "yes" : "no") + "</p>";
   s += "<p><a href='/wifi'>WiFi</a> | <a href='/dmx'>sACN</a> | <a href='/subdevices'>Subdevices</a></p>";
 
@@ -263,3 +272,10 @@ void setupWeb() {
 void handleWeb() {
   server.handleClient();
 }
+
+#else
+
+void setupWeb() {}
+void handleWeb() {}
+
+#endif

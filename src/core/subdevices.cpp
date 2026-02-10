@@ -1,6 +1,10 @@
 #include "core/subdevices.h"
 
+#include "core/features.h"
+
+#if USE_PIXELS
 #include <Adafruit_NeoPixel.h>
+#endif
 
 #include "core/config.h"
 
@@ -12,7 +16,9 @@ struct StepperState {
 };
 
 static StepperState stepperStates[MAX_SUBDEVICES];
+#if USE_PIXELS
 static Adafruit_NeoPixel* pixelStrips[MAX_SUBDEVICES] = {nullptr};
+#endif
 
 static constexpr uint8_t HALFSEQ[8][4] = {
   {1,0,0,0}, {1,1,0,0}, {0,1,0,0}, {0,1,1,0},
@@ -80,6 +86,7 @@ static void initLedDevice(uint8_t i) {
   digitalWrite(sd.led.pin, sd.led.activeHigh ? LOW : HIGH);
 }
 
+#if USE_PIXELS
 static void initPixelDevice(uint8_t i) {
   auto& sd = cfg.subdevices[i];
   if (pixelStrips[i]) {
@@ -94,6 +101,7 @@ static void initPixelDevice(uint8_t i) {
   pixelStrips[i]->clear();
   pixelStrips[i]->show();
 }
+#endif
 
 void initSubdevices() {
   for (uint8_t i = 0; i < cfg.subdeviceCount && i < MAX_SUBDEVICES; i++) {
@@ -103,7 +111,11 @@ void initSubdevices() {
       case SUBDEVICE_DC_MOTOR: initDcDevice(i); break;
       case SUBDEVICE_RELAY: initRelayDevice(i); break;
       case SUBDEVICE_LED: initLedDevice(i); break;
-      case SUBDEVICE_PIXELS: initPixelDevice(i); break;
+      case SUBDEVICE_PIXELS:
+#if USE_PIXELS
+        initPixelDevice(i);
+#endif
+        break;
       default: break;
     }
   }
@@ -193,6 +205,7 @@ void applySacnToSubdevices(uint16_t universe, const uint8_t* dmxSlots, uint16_t 
         break;
       }
       case SUBDEVICE_PIXELS: {
+#if USE_PIXELS
         if (!pixelStrips[i]) break;
         uint8_t r = dmxSlots[sd.map.startAddr - 1];
         uint8_t g = dmxSlots[sd.map.startAddr];
@@ -201,6 +214,7 @@ void applySacnToSubdevices(uint16_t universe, const uint8_t* dmxSlots, uint16_t 
           pixelStrips[i]->setPixelColor(p, pixelStrips[i]->Color(r, g, b));
         }
         pixelStrips[i]->show();
+#endif
         break;
       }
       default:
@@ -224,10 +238,12 @@ void stopSubdevicesOnLoss() {
         digitalWrite(sd.led.pin, sd.led.activeHigh ? LOW : HIGH);
         break;
       case SUBDEVICE_PIXELS:
+#if USE_PIXELS
         if (pixelStrips[i]) {
           pixelStrips[i]->clear();
           pixelStrips[i]->show();
         }
+#endif
         break;
       case SUBDEVICE_STEPPER:
       default:
@@ -275,15 +291,19 @@ bool addSubdevice(SubdeviceType type, const String& name) {
 
 bool deleteSubdevice(uint8_t index) {
   if (index >= cfg.subdeviceCount) return false;
+#if USE_PIXELS
   if (pixelStrips[index]) {
     delete pixelStrips[index];
     pixelStrips[index] = nullptr;
   }
+#endif
   for (uint8_t i = index; i + 1 < cfg.subdeviceCount; i++) {
     cfg.subdevices[i] = cfg.subdevices[i + 1];
     stepperStates[i] = stepperStates[i + 1];
+#if USE_PIXELS
     pixelStrips[i] = pixelStrips[i + 1];
     pixelStrips[i + 1] = nullptr;
+#endif
   }
   cfg.subdeviceCount--;
   return true;

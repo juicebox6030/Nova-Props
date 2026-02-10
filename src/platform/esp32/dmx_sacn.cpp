@@ -1,5 +1,9 @@
 #include "platform/esp32/dmx_sacn.h"
 
+#include "core/features.h"
+
+#if USE_SACN
+
 #include <ESPAsyncE131.h>
 #include <lwip/def.h>
 
@@ -61,3 +65,16 @@ uint16_t lastUniverseSeen() { return lastUniverseSeenValue; }
 uint16_t lastDcRawValue() { return 0; }
 uint16_t lastStepRawValue() { return 0; }
 bool dmxActive() { return haveDmx; }
+
+#else
+
+void startSacn() {}
+void handleSacnPackets() {}
+void enforceDmxLoss() {}
+uint32_t sacnPacketCounter() { return 0; }
+uint16_t lastUniverseSeen() { return 0; }
+uint16_t lastDcRawValue() { return 0; }
+uint16_t lastStepRawValue() { return 0; }
+bool dmxActive() { return false; }
+
+#endif
