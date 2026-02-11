@@ -17,6 +17,8 @@ struct StepperState {
   bool velocityMode = false;
   int8_t velocityDir = 1;
   float velocityDegPerSec = 0.0f;
+  int32_t lastAbsoluteInputWithinRev = -1;
+  int8_t lastStepDir = 0;
 };
 
 struct DcOutputState {
@@ -103,21 +105,16 @@ static uint16_t readU16(const uint8_t* dmxSlots, uint16_t addr) {
   return (uint16_t)((hi << 8) | lo);
 }
 
-static int32_t floorDiv(int32_t v, int32_t d) {
-  int32_t q = v / d;
-  int32_t r = v % d;
-  if (r != 0 && ((r > 0) != (d > 0))) q--;
-  return q;
-}
-
 static int32_t mapPositionToSteps(uint16_t rawPosition, uint16_t rawMax, uint16_t stepsPerRev) {
   if (stepsPerRev <= 1 || rawMax == 0) return 0;
   return (int32_t)(((uint32_t)rawPosition * (uint32_t)(stepsPerRev - 1)) / rawMax);
 }
 
+static int8_t directionSign(StepperDirection dir) {
+  return dir == STEPPER_DIR_CCW ? -1 : 1;
+}
+
 static int32_t computeSeekTargetSteps(const SubdeviceConfig& sd, const StepperState& st, int32_t targetWithinRev) {
-  // DMX absolute position should take the shortest path within one revolution.
-  // (This avoids always seeking CW/CCW and doing a full wrap when crossing 0.)
   int32_t stepsPerRev = sd.stepper.stepsPerRev;
   if (stepsPerRev <= 0) return st.current;
 
@@ -126,11 +123,33 @@ static int32_t computeSeekTargetSteps(const SubdeviceConfig& sd, const StepperSt
   if (currentWithinRev < 0) currentWithinRev += stepsPerRev;
 
   int32_t delta = targetWithinRev - currentWithinRev;
-  int32_t half = stepsPerRev / 2;
-  if (delta > half) delta -= stepsPerRev;
-  if (delta < -half) delta += stepsPerRev;
+  int32_t deltaCw = delta;
+  if (deltaCw < 0) deltaCw += stepsPerRev;
 
-  return st.current + delta;
+  int32_t deltaCcw = delta;
+  if (deltaCcw > 0) deltaCcw -= stepsPerRev;
+
+  if (sd.stepper.seekMode == STEPPER_SEEK_DIRECTIONAL) {
+    bool isForwardMove = true;
+    if (st.lastAbsoluteInputWithinRev >= 0) {
+      isForwardMove = targetWithinRev >= st.lastAbsoluteInputWithinRev;
+    }
+    int8_t forcedDirection = directionSign(isForwardMove ? sd.stepper.seekForwardDirection : sd.stepper.seekReturnDirection);
+    return st.current + (forcedDirection >= 0 ? deltaCw : deltaCcw);
+  }
+
+  int32_t magCw = deltaCw >= 0 ? deltaCw : -deltaCw;
+  int32_t magCcw = deltaCcw >= 0 ? deltaCcw : -deltaCcw;
+  if (magCw < magCcw) return st.current + deltaCw;
+  if (magCcw < magCw) return st.current + deltaCcw;
+
+  int8_t tieDirection = 1;
+  if (sd.stepper.seekTieBreakMode == STEPPER_TIEBREAK_CCW) {
+    tieDirection = -1;
+  } else if (sd.stepper.seekTieBreakMode == STEPPER_TIEBREAK_OPPOSITE_LAST) {
+    tieDirection = (st.lastStepDir > 0) ? -1 : 1;
+  }
+  return st.current + (tieDirection >= 0 ? deltaCw : deltaCcw);
 }
 
 static void setRelayOutput(uint8_t i, bool on) {
@@ -215,6 +234,7 @@ static void applyStepperAbsoluteCommand(uint8_t i, int32_t targetWithinRev) {
 
   st.velocityMode = false;
   int32_t target = computeSeekTargetSteps(sd, st, targetWithinRev);
+  st.lastAbsoluteInputWithinRev = targetWithinRev;
   if (sd.stepper.limitsEnabled) {
     float stepsPerDeg = (float)sd.stepper.stepsPerRev / 360.0f;
     int32_t minTarget = (int32_t)lroundf(sd.stepper.minDeg * stepsPerDeg) + sd.stepper.homeOffsetSteps;
@@ -393,17 +413,21 @@ static void tickStepper(uint8_t i) {
     if (st.velocityDir >= 0) {
       st.current++;
       st.phase = (st.phase + 1) & 0x07;
+      st.lastStepDir = 1;
     } else {
       st.current--;
       st.phase = (st.phase + 7) & 0x07;
+      st.lastStepDir = -1;
     }
     st.target = st.current;
   } else if (st.target > st.current) {
     st.current++;
     st.phase = (st.phase + 1) & 0x07;
+    st.lastStepDir = 1;
   } else {
     st.current--;
     st.phase = (st.phase + 7) & 0x07;
+    st.lastStepDir = -1;
   }
 
   digitalWrite(sd.stepper.in1, HALFSEQ[st.phase][0] ? HIGH : LOW);

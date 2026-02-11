@@ -48,7 +48,7 @@ A single config can contain multiple subdevices.
   - 8-bit mode: `CH1` absolute position, `CH2` velocity override.
   - 16-bit mode: `CH1+CH2` absolute position, `CH3` velocity override.
 - Stepper runtime stores internal step position and target state continuously between packets; on DMX loss it now de-energizes coils but preserves logical position/target state so reconnect does not introduce synthetic catch-up motion.
-- Absolute seek direction is configurable (`seekClockwise`) so position seeks can be forced CW or CCW.
+- Absolute seek behavior is configurable per stepper: shortest-path mode (with selectable 180° tiebreak: CW/CCW/opposite-last-direction) or directional mode with independent forward/return direction settings (CW/CCW).
 - Subdevice runtime configs now include driver enums (`Generic` currently) for Stepper/DC/Pixels to support descriptor-based driver expansion.
 - Runtime output writes are now state-buffered for DC/Pixels, DC outputs can optionally ramp over a configurable buffer window (ms), and stepper timing intervals are cached per command to reduce per-tick CPU load on single-core MCUs.
 - sACN ingest supports a global per-universe frame hold window (`sacnBufferMs`): `0` applies immediately, non-zero applies latest buffered frames on a rate-limited interval.

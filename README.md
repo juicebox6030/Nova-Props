@@ -107,7 +107,11 @@ Set these per environment in `platformio.ini` to fit small targets.
   - 16-bit position mode (`position16Bit = true`):
     - `CH1+CH2` (start + 0/1): absolute position `0..65535` mapped into one full revolution.
     - `CH3` (start + 2): same velocity override mapping.
-  - `seekClockwise` sets absolute seek direction (`true` = always CW, `false` = always CCW).
+  - Absolute seek controls:
+    - `seekMode = shortest-path`: moves by minimal angle each update; 180° ties use configurable tiebreak (`CW`, `CCW`, or `Opposite of last direction`).
+    - `seekMode = directional`: chooses direction set by forward/return trend from DMX absolute position changes:
+      - forward (new target >= previous target): uses `seekForwardDirection` (`CW`/`CCW`)
+      - return (new target < previous target): uses `seekReturnDirection` (`CW`/`CCW`)
 - Stepper supports optional **home/e-stop switch** (`enabled`, `pin`, `active low`) and a **Home/Zero** action in the web UI.
 - On DMX loss/restore, stepper logical position is preserved (coils are de-energized but state is held) to avoid reconnect jumps.
 - Runtime command handling buffers output state (DC/pixels), includes configurable DC ramp-buffer smoothing to reduce packet jitter effects, and caches stepper timing intervals to keep the single-core loop responsive under high sACN packet rates.

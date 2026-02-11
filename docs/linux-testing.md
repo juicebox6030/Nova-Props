@@ -13,7 +13,7 @@
 - `/` root dashboard
 - `/wifi` WiFi settings
 - `/dmx` sACN settings (including global `sacnBufferMs` jitter-smoothing window)
-- `/subdevices` subdevice CRUD/editor with type-specific settings
+- `/subdevices` subdevice CRUD/editor with type-specific settings (including stepper seek mode, forward/return direction, and shortest-path tiebreaker)
 
 In addition, it has **simulator-only hardware verification tools**:
 
