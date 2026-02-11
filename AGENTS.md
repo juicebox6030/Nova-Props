@@ -53,3 +53,8 @@ PR descriptions should include:
 - What changed
 - Testing performed (+ limitations)
 - Any migration steps for users
+
+## Simulator/Firmware parity
+
+- When changing firmware Web UI/config field names or semantics, update `simulator/sim_app.py` in the same patch so simulator `/subdevices` remains aligned with firmware forms and save handlers.
+- Treat simulator/firmware UI drift as a regression: validate parity before merge.

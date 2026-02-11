@@ -51,7 +51,7 @@ A single config can contain multiple subdevices.
 - Absolute seek behavior is configurable per stepper: shortest-path mode (with selectable 180° tiebreak: CW/CCW/opposite-last-direction) or directional mode with independent forward/return direction settings (CW/CCW).
 - Subdevice runtime configs now include driver enums (`Generic` currently) for Stepper/DC/Pixels to support descriptor-based driver expansion.
 - Runtime output writes are now state-buffered for DC/Pixels, DC outputs can optionally ramp over a configurable buffer window (ms), and stepper timing intervals are cached per command to reduce per-tick CPU load on single-core MCUs.
-- sACN ingest supports a global per-universe frame hold window (`sacnBufferMs`): `0` applies immediately, non-zero applies latest buffered frames on a rate-limited interval.
+- sACN ingest supports a global per-universe frame hold window (`sacnBufferMs`): `0` applies immediately, non-zero applies latest buffered frames on a rate-limited interval and suppresses unchanged-frame re-apply work.
 - Optional ESP32 dual-core scheduling (`USE_ESP32_DUAL_CORE`) pins the runtime worker (sACN ingest + subdevice tick + DMX loss enforcement) to core 1 while web/OTA stay in the default loop task.
 - Optional per-stepper home/e-stop switch config can zero and stop the motor in runtime.
 

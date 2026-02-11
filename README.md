@@ -115,7 +115,7 @@ Set these per environment in `platformio.ini` to fit small targets.
 - Stepper supports optional **home/e-stop switch** (`enabled`, `pin`, `active low`) and a **Home/Zero** action in the web UI.
 - On DMX loss/restore, stepper logical position is preserved (coils are de-energized but state is held) to avoid reconnect jumps.
 - Runtime command handling buffers output state (DC/pixels), includes configurable DC ramp-buffer smoothing to reduce packet jitter effects, and caches stepper timing intervals to keep the single-core loop responsive under high sACN packet rates.
-- Global sACN ingest buffering (`sacnBufferMs`) can be set in `/dmx` (0..10000 ms). `0` keeps immediate packet apply behavior; non-zero values apply the latest frame per universe on a rate-limited window to smooth unstable links.
+- Global sACN ingest buffering (`sacnBufferMs`) can be set in `/dmx` (0..10000 ms). `0` keeps immediate packet apply behavior; non-zero values apply latest buffered frames per universe on a rate-limited window and skip unchanged payloads to reduce runtime churn on noisy links.
 - Optional ESP32 dual-core mode (`USE_ESP32_DUAL_CORE=1`) moves the sACN + subdevice runtime loop onto core 1 while the default Arduino loop handles web/OTA services.
 
 ---

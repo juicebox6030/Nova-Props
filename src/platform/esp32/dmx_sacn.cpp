@@ -5,6 +5,7 @@
 #if USE_SACN
 
 #include <ESPAsyncE131.h>
+#include <string.h>
 #include <lwip/def.h>
 
 #include "core/config.h"
@@ -20,28 +21,48 @@ static uint16_t lastUniverseSeenValue = 0;
 
 struct BufferedUniverseFrame {
   bool hasFrame = false;
+  bool dirty = false;
   uint16_t universe = 0;
   uint32_t lastApplyMs = 0;
+  uint32_t lastSeenMs = 0;
   uint8_t slots[512] = {0};
 };
 
 static constexpr uint8_t MAX_BUFFERED_UNIVERSES = 4;
 static BufferedUniverseFrame bufferedFrames[MAX_BUFFERED_UNIVERSES];
 
-static BufferedUniverseFrame* findBufferedFrame(uint16_t universe, bool create) {
+static BufferedUniverseFrame* findBufferedFrame(uint16_t universe, bool create, uint32_t nowMs) {
   for (uint8_t i = 0; i < MAX_BUFFERED_UNIVERSES; i++) {
     if (bufferedFrames[i].universe == universe && bufferedFrames[i].universe != 0) return &bufferedFrames[i];
   }
   if (!create) return nullptr;
+
   for (uint8_t i = 0; i < MAX_BUFFERED_UNIVERSES; i++) {
     if (bufferedFrames[i].universe == 0) {
       bufferedFrames[i].universe = universe;
       bufferedFrames[i].hasFrame = false;
+      bufferedFrames[i].dirty = false;
       bufferedFrames[i].lastApplyMs = 0;
+      bufferedFrames[i].lastSeenMs = nowMs;
       return &bufferedFrames[i];
     }
   }
-  return nullptr;
+
+  // Buffer is full: replace the stalest slot so active universes continue updating.
+  uint8_t stalest = 0;
+  uint32_t stalestAge = nowMs - bufferedFrames[0].lastSeenMs;
+  for (uint8_t i = 1; i < MAX_BUFFERED_UNIVERSES; i++) {
+    uint32_t age = nowMs - bufferedFrames[i].lastSeenMs;
+    if (age > stalestAge) {
+      stalest = i;
+      stalestAge = age;
+    }
+  }
+
+  bufferedFrames[stalest] = BufferedUniverseFrame();
+  bufferedFrames[stalest].universe = universe;
+  bufferedFrames[stalest].lastSeenMs = nowMs;
+  return &bufferedFrames[stalest];
 }
 
 void startSacn() {
@@ -82,10 +103,16 @@ void handleSacnPackets() {
     if (cfg.sacnBufferMs == 0) {
       applySacnToSubdevices(u, &p.property_values[1], 512);
     } else {
-      BufferedUniverseFrame* frame = findBufferedFrame(u, true);
+      uint32_t nowMs = millis();
+      BufferedUniverseFrame* frame = findBufferedFrame(u, true, nowMs);
       if (frame) {
-        memcpy(frame->slots, &p.property_values[1], sizeof(frame->slots));
+        const uint8_t* incoming = &p.property_values[1];
+        if (!frame->hasFrame || memcmp(frame->slots, incoming, sizeof(frame->slots)) != 0) {
+          memcpy(frame->slots, incoming, sizeof(frame->slots));
+          frame->dirty = true;
+        }
         frame->hasFrame = true;
+        frame->lastSeenMs = nowMs;
       }
     }
 
@@ -99,11 +126,13 @@ void handleSacnPackets() {
   for (uint8_t i = 0; i < MAX_BUFFERED_UNIVERSES; i++) {
     auto& frame = bufferedFrames[i];
     if (!frame.hasFrame || frame.universe == 0) continue;
+    if (!frame.dirty && frame.lastApplyMs != 0) continue;
 
     if (frame.lastApplyMs != 0 && (uint32_t)(now - frame.lastApplyMs) < cfg.sacnBufferMs) continue;
 
     applySacnToSubdevices(frame.universe, frame.slots, 512);
     frame.lastApplyMs = now;
+    frame.dirty = false;
   }
 }
 
