@@ -40,6 +40,7 @@ class SacnMapping:
 
 @dataclass
 class StepperRuntimeConfig:
+    driver: int = 0
     in1: int = 16
     in2: int = 17
     in3: int = 18
@@ -50,6 +51,14 @@ class StepperRuntimeConfig:
     minDeg: float = 0.0
     maxDeg: float = 360.0
     homeOffsetSteps: int = 0
+    homeSwitchEnabled: bool = False
+    homeSwitchPin: int = 255
+    homeSwitchActiveLow: bool = True
+    position16Bit: bool = False
+    seekMode: int = 0
+    seekForwardDirection: int = 0
+    seekReturnDirection: int = 1
+    seekTieBreakMode: int = 2
 
 
 @dataclass
@@ -311,6 +320,27 @@ def type_options(selected: int) -> str:
         out.append(f"<option value='{t}'{sel}>{SUBDEVICE_TYPES[t]}</option>")
     return "".join(out)
 
+def stepper_seek_mode_options(selected: int) -> str:
+    return "".join([
+        f"<option value='0'{' selected' if selected == 0 else ''}>Shortest path</option>",
+        f"<option value='1'{' selected' if selected == 1 else ''}>Directional (forward/return)</option>",
+    ])
+
+
+def stepper_direction_options(selected: int) -> str:
+    return "".join([
+        f"<option value='0'{' selected' if selected == 0 else ''}>CW</option>",
+        f"<option value='1'{' selected' if selected == 1 else ''}>CCW</option>",
+    ])
+
+
+def stepper_tiebreak_options(selected: int) -> str:
+    return "".join([
+        f"<option value='0'{' selected' if selected == 0 else ''}>Prefer CW</option>",
+        f"<option value='1'{' selected' if selected == 1 else ''}>Prefer CCW</option>",
+        f"<option value='2'{' selected' if selected == 2 else ''}>Opposite of last direction</option>",
+    ])
+
 
 def page_root(app: SimApp) -> str:
     s = html_head("Nova-Props Simulator")
@@ -365,21 +395,35 @@ def page_dmx(app: SimApp) -> str:
 
 def render_type_specific_fields(sd: SubdeviceConfig) -> str:
     stlim = "checked" if sd.stepper.limitsEnabled else ""
+    st16 = "checked" if sd.stepper.position16Bit else ""
+    sthomen = "checked" if sd.stepper.homeSwitchEnabled else ""
+    sthomeal = "checked" if sd.stepper.homeSwitchActiveLow else ""
     rlah = "checked" if sd.relay.activeHigh else ""
     ledah = "checked" if sd.led.activeHigh else ""
 
     if sd.type == 0:
         return (
             "<fieldset><legend>Stepper</legend>"
+            "Driver <select name='stdrv'><option value='0' selected>Generic</option></select><br><br>"
             f"IN1 <input name='st1' type='number' value='{sd.stepper.in1}'> "
             f"IN2 <input name='st2' type='number' value='{sd.stepper.in2}'> "
             f"IN3 <input name='st3' type='number' value='{sd.stepper.in3}'> "
             f"IN4 <input name='st4' type='number' value='{sd.stepper.in4}'><br><br>"
             f"Steps/rev <input name='stspr' type='number' value='{sd.stepper.stepsPerRev}'> "
-            f"Max deg/sec <input name='stspd' type='number' step='0.1' value='{sd.stepper.maxDegPerSec}'><br><br>"
+            f"Max deg/sec <input name='stspd' type='number' step='0.1' value='{sd.stepper.maxDegPerSec}'><br>"
+            f"<label><input type='checkbox' name='st16' {st16}>16-bit position (CH1+CH2)</label><br>"
+            f"Seek mode <select name='stseekmode'>{stepper_seek_mode_options(sd.stepper.seekMode)}</select> "
+            f"Forward direction <select name='stfwddir'>{stepper_direction_options(sd.stepper.seekForwardDirection)}</select> "
+            f"Return direction <select name='stretdir'>{stepper_direction_options(sd.stepper.seekReturnDirection)}</select><br>"
+            f"Shortest-path tiebreaker <select name='sttiebreak'>{stepper_tiebreak_options(sd.stepper.seekTieBreakMode)}</select><br>"
+            "<small>8-bit mode: CH1 absolute + CH2 speed. 16-bit mode: CH1+CH2 absolute + CH3 speed. Speed: 0 uses absolute seek settings; non-zero uses velocity override.</small><br><br>"
             f"<label><input type='checkbox' name='stlim' {stlim}>Limits</label> "
             f"Min <input name='stmin' type='number' step='0.1' value='{sd.stepper.minDeg}'> "
-            f"Max <input name='stmax' type='number' step='0.1' value='{sd.stepper.maxDeg}'></fieldset><br>"
+            f"Max <input name='stmax' type='number' step='0.1' value='{sd.stepper.maxDeg}'><br><br>"
+            f"<label><input type='checkbox' name='sthomen' {sthomen}>E-stop/Home switch</label> "
+            f"Pin <input name='sthomepin' type='number' min='0' max='255' value='{sd.stepper.homeSwitchPin}'> "
+            f"<label><input type='checkbox' name='sthomeal' {sthomeal}>Active low</label>"
+            "</fieldset><br>"
         )
     if sd.type == 1:
         return (
@@ -553,6 +597,7 @@ class Handler(BaseHTTPRequestHandler):
             sd.map.startAddr = int(data.get("a", [str(sd.map.startAddr)])[0])
 
             if sd.type == 0:
+                sd.stepper.driver = int(data.get("stdrv", [str(sd.stepper.driver)])[0])
                 sd.stepper.in1 = int(data.get("st1", [str(sd.stepper.in1)])[0])
                 sd.stepper.in2 = int(data.get("st2", [str(sd.stepper.in2)])[0])
                 sd.stepper.in3 = int(data.get("st3", [str(sd.stepper.in3)])[0])
@@ -562,6 +607,14 @@ class Handler(BaseHTTPRequestHandler):
                 sd.stepper.limitsEnabled = "stlim" in data
                 sd.stepper.minDeg = float(data.get("stmin", [str(sd.stepper.minDeg)])[0])
                 sd.stepper.maxDeg = float(data.get("stmax", [str(sd.stepper.maxDeg)])[0])
+                sd.stepper.homeSwitchEnabled = "sthomen" in data
+                sd.stepper.homeSwitchPin = int(data.get("sthomepin", [str(sd.stepper.homeSwitchPin)])[0])
+                sd.stepper.homeSwitchActiveLow = "sthomeal" in data
+                sd.stepper.position16Bit = "st16" in data
+                sd.stepper.seekMode = int(data.get("stseekmode", [str(sd.stepper.seekMode)])[0])
+                sd.stepper.seekForwardDirection = int(data.get("stfwddir", [str(sd.stepper.seekForwardDirection)])[0])
+                sd.stepper.seekReturnDirection = int(data.get("stretdir", [str(sd.stepper.seekReturnDirection)])[0])
+                sd.stepper.seekTieBreakMode = int(data.get("sttiebreak", [str(sd.stepper.seekTieBreakMode)])[0])
             elif sd.type == 1:
                 sd.dc.dirPin = int(data.get("dcdir", [str(sd.dc.dirPin)])[0])
                 sd.dc.pwmPin = int(data.get("dcpwm", [str(sd.dc.pwmPin)])[0])
@@ -599,7 +652,33 @@ class Handler(BaseHTTPRequestHandler):
         self._send(404, "not found", "text/plain")
 
 
+
+def firmware_ui_sync_report() -> list[str]:
+    web_ui_cpp = ROOT.parent / "src" / "core" / "web_ui.cpp"
+    if not web_ui_cpp.exists():
+        return ["firmware web_ui.cpp not found; cannot compare HTML field names"]
+
+    fw = web_ui_cpp.read_text()
+    required_fields = [
+        "stseekmode",
+        "stfwddir",
+        "stretdir",
+        "sttiebreak",
+        "st16",
+        "sthomen",
+        "sthomepin",
+        "sthomeal",
+    ]
+
+    warnings: list[str] = []
+    for field in required_fields:
+        if f"name='{field}'" not in fw:
+            warnings.append(f"firmware missing expected field {field}")
+    return warnings
+
 def main() -> None:
+    for warning in firmware_ui_sync_report():
+        print(f"[sim warning] {warning}")
     app = SimApp(CONFIG_PATH)
     Handler.app = app
     host = os.environ.get("SIM_HOST", "127.0.0.1")
