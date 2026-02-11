@@ -257,7 +257,7 @@ static void applyStepperVelocityCommand(uint8_t i, uint8_t speedRaw) {
 uint8_t subdeviceSlotWidth(const SubdeviceConfig& sd) {
   switch (sd.type) {
     case SUBDEVICE_STEPPER: return sd.stepper.position16Bit ? 3 : 2;
-    case SUBDEVICE_DC_MOTOR: return 2;
+    case SUBDEVICE_DC_MOTOR: return sd.dc.command16Bit ? 2 : 1;
     case SUBDEVICE_RELAY: return 1;
     case SUBDEVICE_LED: return 1;
     case SUBDEVICE_PIXELS: return 3;
@@ -433,7 +433,9 @@ void applySacnToSubdevices(uint16_t universe, const uint8_t* dmxSlots, uint16_t 
 
     switch (sd.type) {
       case SUBDEVICE_DC_MOTOR: {
-        uint16_t raw = readU16(dmxSlots, sd.map.startAddr);
+        uint16_t raw = sd.dc.command16Bit
+                       ? readU16(dmxSlots, sd.map.startAddr)
+                       : (uint16_t)(dmxSlots[sd.map.startAddr - 1] * 257U);
         int16_t signedCmd = (int16_t)((int32_t)raw - 32768);
         int32_t v = signedCmd;
         if (abs(v) <= sd.dc.deadband || raw == 0) v = 0;

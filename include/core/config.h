@@ -63,6 +63,7 @@ struct DcMotorRuntimeConfig {
   int16_t deadband = 900;
   uint8_t maxPwm = 255;
   uint16_t rampBufferMs = 120;
+  bool command16Bit = false;
 };
 
 struct RelayRuntimeConfig {
@@ -107,6 +108,7 @@ struct AppConfig {
   uint16_t universe = 1;
   uint16_t startAddr = 1;
   SacnMode sacnMode = SACN_UNICAST;
+  uint16_t sacnBufferMs = 0;
 
   DmxLossMode lossMode = LOSS_FORCE_OFF;
   uint32_t lossTimeoutMs = 1000;

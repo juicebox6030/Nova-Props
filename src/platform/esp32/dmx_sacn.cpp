@@ -18,6 +18,32 @@ static uint32_t lastDmxMs = 0;
 static uint32_t sacnPacketCount = 0;
 static uint16_t lastUniverseSeenValue = 0;
 
+struct BufferedUniverseFrame {
+  bool hasFrame = false;
+  uint16_t universe = 0;
+  uint32_t lastApplyMs = 0;
+  uint8_t slots[512] = {0};
+};
+
+static constexpr uint8_t MAX_BUFFERED_UNIVERSES = 4;
+static BufferedUniverseFrame bufferedFrames[MAX_BUFFERED_UNIVERSES];
+
+static BufferedUniverseFrame* findBufferedFrame(uint16_t universe, bool create) {
+  for (uint8_t i = 0; i < MAX_BUFFERED_UNIVERSES; i++) {
+    if (bufferedFrames[i].universe == universe && bufferedFrames[i].universe != 0) return &bufferedFrames[i];
+  }
+  if (!create) return nullptr;
+  for (uint8_t i = 0; i < MAX_BUFFERED_UNIVERSES; i++) {
+    if (bufferedFrames[i].universe == 0) {
+      bufferedFrames[i].universe = universe;
+      bufferedFrames[i].hasFrame = false;
+      bufferedFrames[i].lastApplyMs = 0;
+      return &bufferedFrames[i];
+    }
+  }
+  return nullptr;
+}
+
 void startSacn() {
   e131Started = false;
   uint16_t minU = subdeviceMinUniverse();
@@ -25,6 +51,10 @@ void startSacn() {
   uint16_t range = (maxU >= minU) ? (maxU - minU + 1) : 1;
   if (range < 1) range = 1;
   if (range > 4) range = 4;
+
+  for (uint8_t i = 0; i < MAX_BUFFERED_UNIVERSES; i++) {
+    bufferedFrames[i] = BufferedUniverseFrame();
+  }
 
   if (cfg.sacnMode == SACN_MULTICAST) {
     e131.begin(E131_MULTICAST, minU, range);
@@ -49,9 +79,31 @@ void handleSacnPackets() {
     lastUniverseSeenValue = u;
     sacnPacketCount++;
 
-    applySacnToSubdevices(u, &p.property_values[1], 512);
+    if (cfg.sacnBufferMs == 0) {
+      applySacnToSubdevices(u, &p.property_values[1], 512);
+    } else {
+      BufferedUniverseFrame* frame = findBufferedFrame(u, true);
+      if (frame) {
+        memcpy(frame->slots, &p.property_values[1], sizeof(frame->slots));
+        frame->hasFrame = true;
+      }
+    }
+
     haveDmx = true;
     lastDmxMs = millis();
+  }
+
+  if (cfg.sacnBufferMs == 0) return;
+
+  uint32_t now = millis();
+  for (uint8_t i = 0; i < MAX_BUFFERED_UNIVERSES; i++) {
+    auto& frame = bufferedFrames[i];
+    if (!frame.hasFrame || frame.universe == 0) continue;
+
+    if (frame.lastApplyMs != 0 && (uint32_t)(now - frame.lastApplyMs) < cfg.sacnBufferMs) continue;
+
+    applySacnToSubdevices(frame.universe, frame.slots, 512);
+    frame.lastApplyMs = now;
   }
 }
 
