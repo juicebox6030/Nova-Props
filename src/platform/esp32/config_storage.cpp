@@ -18,6 +18,7 @@ void sanity() {
   if (cfg.startAddr > 512) cfg.startAddr = 512;
   if (cfg.lossTimeoutMs < 100) cfg.lossTimeoutMs = 100;
   if (cfg.lossTimeoutMs > 60000) cfg.lossTimeoutMs = 60000;
+  if (cfg.sacnBufferMs > 10000) cfg.sacnBufferMs = 10000;
   if (cfg.subdeviceCount > MAX_SUBDEVICES) cfg.subdeviceCount = MAX_SUBDEVICES;
 
   for (uint8_t i = 0; i < cfg.subdeviceCount; i++) {
@@ -26,7 +27,7 @@ void sanity() {
     if (sd.map.startAddr < 1) sd.map.startAddr = 1;
     if (sd.map.startAddr > 512) sd.map.startAddr = 512;
     if (sd.dc.pwmBits < 1) sd.dc.pwmBits = 1;
-    if (sd.dc.pwmBits > 16) sd.dc.pwmBits = 16;
+    if (sd.dc.pwmBits > 8) sd.dc.pwmBits = 8;
     if (sd.dc.pwmChannel > 15) sd.dc.pwmChannel = 15;
     if (sd.dc.pwmHz < 1) sd.dc.pwmHz = 1;
     if (sd.dc.rampBufferMs > 10000) sd.dc.rampBufferMs = 10000;
@@ -65,6 +66,7 @@ static void loadSubdevice(JsonObject obj, SubdeviceConfig& sd) {
   sd.dc.deadband = obj["dc"]["deadband"] | sd.dc.deadband;
   sd.dc.maxPwm = obj["dc"]["maxPwm"] | sd.dc.maxPwm;
   sd.dc.rampBufferMs = obj["dc"]["rampBufferMs"] | sd.dc.rampBufferMs;
+  sd.dc.command16Bit = obj["dc"]["command16Bit"] | sd.dc.command16Bit;
 
   sd.stepper.driver = (StepperDriverType)((int)obj["stepper"]["driver"] | (int)sd.stepper.driver);
   sd.stepper.in1 = obj["stepper"]["in1"] | sd.stepper.in1;
@@ -112,6 +114,7 @@ static void saveSubdevice(JsonArray arr, const SubdeviceConfig& sd) {
   obj["dc"]["deadband"] = sd.dc.deadband;
   obj["dc"]["maxPwm"] = sd.dc.maxPwm;
   obj["dc"]["rampBufferMs"] = sd.dc.rampBufferMs;
+  obj["dc"]["command16Bit"] = sd.dc.command16Bit;
 
   obj["stepper"]["driver"] = (int)sd.stepper.driver;
   obj["stepper"]["in1"] = sd.stepper.in1;
@@ -148,7 +151,7 @@ bool loadConfig() {
       addSubdevice(SUBDEVICE_DC_MOTOR, "dc-1");
       cfg.subdevices[0].map.startAddr = 1;
       addSubdevice(SUBDEVICE_STEPPER, "stepper-1");
-      cfg.subdevices[1].map.startAddr = 3;
+      cfg.subdevices[1].map.startAddr = 2;
     }
     return false;
   }
@@ -183,6 +186,7 @@ bool loadConfig() {
   cfg.sacnMode = (SacnMode)((int)doc["dmx"]["sacnMode"] | (int)SACN_UNICAST);
   cfg.lossMode = (DmxLossMode)((int)doc["dmx"]["lossMode"] | (int)LOSS_FORCE_OFF);
   cfg.lossTimeoutMs = doc["dmx"]["lossTimeoutMs"] | 1000;
+  cfg.sacnBufferMs = doc["dmx"]["sacnBufferMs"] | 0;
   cfg.homeButtonPin = doc["hardware"]["homeButtonPin"] | cfg.homeButtonPin;
 
   cfg.subdeviceCount = 0;
@@ -200,7 +204,7 @@ bool loadConfig() {
     addSubdevice(SUBDEVICE_DC_MOTOR, "dc-1");
     cfg.subdevices[0].map.startAddr = 1;
     addSubdevice(SUBDEVICE_STEPPER, "stepper-1");
-    cfg.subdevices[1].map.startAddr = 3;
+    cfg.subdevices[1].map.startAddr = 2;
   }
 
   sanity();
@@ -227,6 +231,7 @@ bool saveConfig() {
   doc["dmx"]["sacnMode"] = (int)cfg.sacnMode;
   doc["dmx"]["lossMode"] = (int)cfg.lossMode;
   doc["dmx"]["lossTimeoutMs"] = cfg.lossTimeoutMs;
+  doc["dmx"]["sacnBufferMs"] = cfg.sacnBufferMs;
   doc["hardware"]["homeButtonPin"] = cfg.homeButtonPin;
 
   JsonArray arr = doc["subdevices"].to<JsonArray>();

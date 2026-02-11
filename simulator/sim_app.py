@@ -61,6 +61,8 @@ class DcMotorRuntimeConfig:
     pwmBits: int = 8
     deadband: int = 900
     maxPwm: int = 255
+    rampBufferMs: int = 120
+    command16Bit: bool = False
 
 
 @dataclass
@@ -105,6 +107,7 @@ class AppConfig:
     mask: str = "255.255.255.0"
 
     sacnMode: int = 0
+    sacnBufferMs: int = 0
     lossMode: int = 0
     lossTimeoutMs: int = 1000
 
@@ -142,7 +145,7 @@ class SimApp:
     def _default_subdevices(self) -> list[SubdeviceConfig]:
         return [
             SubdeviceConfig(name="dc-1", type=1, map=SacnMapping(universe=1, startAddr=1)),
-            SubdeviceConfig(name="stepper-1", type=0, map=SacnMapping(universe=1, startAddr=3)),
+            SubdeviceConfig(name="stepper-1", type=0, map=SacnMapping(universe=1, startAddr=2)),
         ]
 
     def _load(self) -> None:
@@ -159,6 +162,7 @@ class SimApp:
         self.cfg.gw = str(raw.get("gw", "192.168.1.1"))
         self.cfg.mask = str(raw.get("mask", "255.255.255.0"))
         self.cfg.sacnMode = int(raw.get("sacnMode", 0))
+        self.cfg.sacnBufferMs = int(raw.get("sacnBufferMs", 0))
         self.cfg.lossMode = int(raw.get("lossMode", 0))
         self.cfg.lossTimeoutMs = int(raw.get("lossTimeoutMs", 1000))
 
@@ -191,6 +195,7 @@ class SimApp:
             "gw": self.cfg.gw,
             "mask": self.cfg.mask,
             "sacnMode": self.cfg.sacnMode,
+            "sacnBufferMs": self.cfg.sacnBufferMs,
             "lossMode": self.cfg.lossMode,
             "lossTimeoutMs": self.cfg.lossTimeoutMs,
             "subdevices": [self._subdevice_to_dict(sd) for sd in self.cfg.subdevices],
@@ -260,7 +265,7 @@ class SimApp:
                 continue
             addr = sd.map.startAddr
             if sd.type == 1:  # DC
-                raw = ((slots.get(addr, 0) << 8) | slots.get(addr + 1, 0))
+                raw = ((slots.get(addr, 0) << 8) | slots.get(addr + 1, 0)) if sd.dc.command16Bit else (slots.get(addr, 0) * 257)
                 signed = raw - 32768
                 if abs(signed) <= sd.dc.deadband:
                     signed = 0
@@ -313,7 +318,7 @@ def page_root(app: SimApp) -> str:
     s += "<p><b>Mode:</b> STA + AP | <b>STA IP:</b> 127.0.0.1 | <b>AP IP:</b> 127.0.0.1</p>"
     s += (
         f"<p><b>Packets:</b> {app.packet_count} | <b>Last Universe:</b> {app.last_universe} "
-        f"| <b>DMX Active:</b> {'yes' if app.dmx_active else 'no'}</p>"
+        f"| <b>DMX Active:</b> {'yes' if app.dmx_active else 'no'} | <b>sACN buffer:</b> {app.cfg.sacnBufferMs} ms</p>"
     )
     s += "<p><a href='/wifi'>WiFi</a> | <a href='/dmx'>sACN</a> | <a href='/subdevices'>Subdevices</a></p>"
 
@@ -348,6 +353,7 @@ def page_dmx(app: SimApp) -> str:
     s += f"<option value='0'{' selected' if app.cfg.sacnMode == 0 else ''}>Unicast</option>"
     s += f"<option value='1'{' selected' if app.cfg.sacnMode == 1 else ''}>Multicast</option>"
     s += "</select><br><br>"
+    s += f"sACN buffer (ms): <input name='sb' type='number' min='0' max='10000' value='{app.cfg.sacnBufferMs}'><br><br>"
     s += f"DMX loss timeout (ms): <input name='to' type='number' min='100' max='60000' value='{app.cfg.lossTimeoutMs}'><br><br>"
     s += "On loss: <select name='lm'>"
     s += f"<option value='0'{' selected' if app.cfg.lossMode == 0 else ''}>Force OFF</option>"
@@ -382,9 +388,12 @@ def render_type_specific_fields(sd: SubdeviceConfig) -> str:
             f"PWM <input name='dcpwm' type='number' value='{sd.dc.pwmPin}'> "
             f"CH <input name='dcch' type='number' value='{sd.dc.pwmChannel}'><br><br>"
             f"Hz <input name='dchz' type='number' value='{sd.dc.pwmHz}'> "
-            f"Bits <input name='dcbits' type='number' value='{sd.dc.pwmBits}'> "
+            f"Bits <input name='dcbits' type='number' min='1' max='8' value='{sd.dc.pwmBits}'> "
             f"Deadband <input name='dcdb' type='number' value='{sd.dc.deadband}'> "
-            f"MaxPWM <input name='dcmx' type='number' value='{sd.dc.maxPwm}'></fieldset><br>"
+            f"MaxPWM <input name='dcmx' type='number' value='{sd.dc.maxPwm}'><br><br>"
+            f"<label><input type='checkbox' name='dc16' {'checked' if sd.dc.command16Bit else ''}>16-bit sACN command (CH1+CH2)</label><br>"
+            f"Ramp buffer ms <input name='dcramp' type='number' min='0' max='10000' value='{sd.dc.rampBufferMs}'><br>"
+            "<small>8-bit mode: CH1 command (default). 16-bit mode: CH1+CH2 command.</small></fieldset><br>"
         )
     if sd.type == 2:
         return (
@@ -518,6 +527,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == "/savedmx":
             self.app.cfg.sacnMode = int(data.get("m", [str(self.app.cfg.sacnMode)])[0])
+            self.app.cfg.sacnBufferMs = max(0, min(10000, int(data.get("sb", [str(self.app.cfg.sacnBufferMs)])[0])))
             self.app.cfg.lossTimeoutMs = int(data.get("to", [str(self.app.cfg.lossTimeoutMs)])[0])
             self.app.cfg.lossMode = int(data.get("lm", [str(self.app.cfg.lossMode)])[0])
             self.app.save()
@@ -557,9 +567,11 @@ class Handler(BaseHTTPRequestHandler):
                 sd.dc.pwmPin = int(data.get("dcpwm", [str(sd.dc.pwmPin)])[0])
                 sd.dc.pwmChannel = int(data.get("dcch", [str(sd.dc.pwmChannel)])[0])
                 sd.dc.pwmHz = int(data.get("dchz", [str(sd.dc.pwmHz)])[0])
-                sd.dc.pwmBits = int(data.get("dcbits", [str(sd.dc.pwmBits)])[0])
+                sd.dc.pwmBits = max(1, min(8, int(data.get("dcbits", [str(sd.dc.pwmBits)])[0])))
+                sd.dc.command16Bit = "dc16" in data
                 sd.dc.deadband = int(data.get("dcdb", [str(sd.dc.deadband)])[0])
                 sd.dc.maxPwm = int(data.get("dcmx", [str(sd.dc.maxPwm)])[0])
+                sd.dc.rampBufferMs = max(0, min(10000, int(data.get("dcramp", [str(sd.dc.rampBufferMs)])[0])))
             elif sd.type == 2:
                 sd.relay.pin = int(data.get("rlpin", [str(sd.relay.pin)])[0])
                 sd.relay.activeHigh = "rlah" in data

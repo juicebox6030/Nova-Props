@@ -43,6 +43,7 @@ A single config can contain multiple subdevices.
 
 ### Stepper runtime notes
 
+- DC subdevices consume 1 slot by default (`CH1` 8-bit signed-style command) or 2 slots when `command16Bit` is enabled (`CH1+CH2`).
 - Stepper subdevices consume 2 or 3 DMX channels per mapping:
   - 8-bit mode: `CH1` absolute position, `CH2` velocity override.
   - 16-bit mode: `CH1+CH2` absolute position, `CH3` velocity override.
@@ -50,6 +51,7 @@ A single config can contain multiple subdevices.
 - Absolute seek direction is configurable (`seekClockwise`) so position seeks can be forced CW or CCW.
 - Subdevice runtime configs now include driver enums (`Generic` currently) for Stepper/DC/Pixels to support descriptor-based driver expansion.
 - Runtime output writes are now state-buffered for DC/Pixels, DC outputs can optionally ramp over a configurable buffer window (ms), and stepper timing intervals are cached per command to reduce per-tick CPU load on single-core MCUs.
+- sACN ingest supports a global per-universe frame hold window (`sacnBufferMs`): `0` applies immediately, non-zero applies latest buffered frames on a rate-limited interval.
 - Optional ESP32 dual-core scheduling (`USE_ESP32_DUAL_CORE`) pins the runtime worker (sACN ingest + subdevice tick + DMX loss enforcement) to core 1 while web/OTA stay in the default loop task.
 - Optional per-stepper home/e-stop switch config can zero and stop the motor in runtime.
 

@@ -93,10 +93,12 @@ static void renderTypeSpecificFields(String& s, const SubdeviceConfig& sd) {
            "PWM <input name='dcpwm' type='number' value='" + String(sd.dc.pwmPin) + "'> "
            "CH <input name='dcch' type='number' value='" + String(sd.dc.pwmChannel) + "'><br><br>"
            "Hz <input name='dchz' type='number' value='" + String(sd.dc.pwmHz) + "'> "
-           "Bits <input name='dcbits' type='number' value='" + String(sd.dc.pwmBits) + "'> "
+           "Bits <input name='dcbits' type='number' min='1' max='8' value='" + String(sd.dc.pwmBits) + "'> "
            "Deadband <input name='dcdb' type='number' value='" + String(sd.dc.deadband) + "'> "
-           "MaxPWM <input name='dcmx' type='number' value='" + String(sd.dc.maxPwm) + "'> "
-           "Ramp buffer ms <input name='dcramp' type='number' min='0' max='10000' value='" + String(sd.dc.rampBufferMs) + "'></fieldset><br>";
+           "MaxPWM <input name='dcmx' type='number' value='" + String(sd.dc.maxPwm) + "'><br><br>"
+           "<label><input type='checkbox' name='dc16' " + String(sd.dc.command16Bit ? "checked" : "") + ">16-bit sACN command (CH1+CH2)</label><br>"
+           "Ramp buffer ms <input name='dcramp' type='number' min='0' max='10000' value='" + String(sd.dc.rampBufferMs) + "'><br>"
+           "<small>8-bit mode: CH1 command (default). 16-bit mode: CH1+CH2 command.</small></fieldset><br>";
       break;
     case SUBDEVICE_RELAY:
       s += "<fieldset><legend>Relay</legend>Relay pin <input name='rlpin' type='number' value='" + String(sd.relay.pin) + "'> "
@@ -125,7 +127,7 @@ static void handleRoot() {
   if (platformIsStaMode()) s += " | <b>STA IP:</b> " + platformStaIp();
   if (platformIsApMode()) s += " | <b>AP IP:</b> " + platformApIp();
   s += "</p>";
-  s += "<p><b>Packets:</b> " + String(sacnPacketCounter()) + " | <b>Last Universe:</b> " + String(lastUniverseSeen()) + " | <b>DMX Active:</b> " + String(dmxActive() ? "yes" : "no") + "</p>";
+  s += "<p><b>Packets:</b> " + String(sacnPacketCounter()) + " | <b>Last Universe:</b> " + String(lastUniverseSeen()) + " | <b>DMX Active:</b> " + String(dmxActive() ? "yes" : "no") + " | <b>sACN buffer:</b> " + String(cfg.sacnBufferMs) + " ms</p>";
   s += "<p><a href='/wifi'>WiFi</a> | <a href='/dmx'>sACN</a> | <a href='/subdevices'>Subdevices</a></p>";
 
   s += "<h3>Configured Subdevices (" + String(cfg.subdeviceCount) + "/" + String(MAX_SUBDEVICES) + ")</h3><ul>";
@@ -159,6 +161,7 @@ static void handleDmx() {
   s += String("<option value='0'") + (cfg.sacnMode == SACN_UNICAST ? " selected" : "") + ">Unicast</option>";
   s += String("<option value='1'") + (cfg.sacnMode == SACN_MULTICAST ? " selected" : "") + ">Multicast</option>";
   s += "</select><br><br>";
+  s += "sACN buffer (ms): <input name='sb' type='number' min='0' max='10000' value='" + String(cfg.sacnBufferMs) + "'><br><br>";
   s += "DMX loss timeout (ms): <input name='to' type='number' min='100' max='60000' value='" + String(cfg.lossTimeoutMs) + "'><br><br>";
   s += "On loss: <select name='lm'>";
   s += String("<option value='0'") + (cfg.lossMode == LOSS_FORCE_OFF ? " selected" : "") + ">Force OFF</option>";
@@ -228,6 +231,7 @@ static void handleSaveWifi() {
 static void handleSaveDmx() {
   if (server.method() != HTTP_POST) { server.send(405, "text/plain", "Method Not Allowed"); return; }
   cfg.sacnMode = (SacnMode)server.arg("m").toInt();
+  cfg.sacnBufferMs = (uint16_t)server.arg("sb").toInt();
   cfg.lossTimeoutMs = (uint32_t)server.arg("to").toInt();
   cfg.lossMode = (DmxLossMode)server.arg("lm").toInt();
   sanity();
@@ -289,6 +293,7 @@ static void handleUpdateSubdevice() {
     sd.dc.pwmChannel = (uint8_t)server.arg("dcch").toInt();
     sd.dc.pwmHz = (uint32_t)server.arg("dchz").toInt();
     sd.dc.pwmBits = (uint8_t)server.arg("dcbits").toInt();
+    sd.dc.command16Bit = server.hasArg("dc16");
     sd.dc.deadband = (int16_t)server.arg("dcdb").toInt();
     sd.dc.maxPwm = (uint8_t)server.arg("dcmx").toInt();
     sd.dc.rampBufferMs = (uint16_t)server.arg("dcramp").toInt();
