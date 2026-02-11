@@ -17,6 +17,7 @@ struct StepperState {
   bool velocityMode = false;
   int8_t velocityDir = 1;
   float velocityDegPerSec = 0.0f;
+  uint8_t lastVelocityRaw = 0;
   int32_t lastAbsoluteInputWithinRev = -1;
   int8_t lastStepDir = 0;
 };
@@ -251,7 +252,10 @@ static void applyStepperVelocityCommand(uint8_t i, uint8_t speedRaw) {
   auto& sd = cfg.subdevices[i];
   auto& st = stepperStates[i];
 
+  if (st.velocityMode && st.lastVelocityRaw == speedRaw) return;
+
   st.velocityMode = true;
+  st.lastVelocityRaw = speedRaw;
 
   // Velocity mapping:
   //   0      = rotation disabled (handled by caller)
@@ -403,14 +407,28 @@ static void tickStepper(uint8_t i) {
     return;
   }
 
-  if (!st.velocityMode && st.current == st.target) return;
   uint32_t nowUs = micros();
-  if ((int32_t)(nowUs - st.nextStepDueUs) < 0) return;
+  if (st.nextStepDueUs == 0) st.nextStepDueUs = nowUs;
 
-  uint32_t intervalUs = st.stepIntervalUs;
+  if (!st.velocityMode && st.current == st.target) return;
 
-  if (st.velocityMode) {
-    if (st.velocityDir >= 0) {
+  uint8_t maxStepsThisTick = 4;
+  uint8_t stepsDone = 0;
+  while ((int32_t)(nowUs - st.nextStepDueUs) >= 0 && stepsDone < maxStepsThisTick) {
+    uint32_t intervalUs = st.stepIntervalUs;
+
+    if (st.velocityMode) {
+      if (st.velocityDir >= 0) {
+        st.current++;
+        st.phase = (st.phase + 1) & 0x07;
+        st.lastStepDir = 1;
+      } else {
+        st.current--;
+        st.phase = (st.phase + 7) & 0x07;
+        st.lastStepDir = -1;
+      }
+      st.target = st.current;
+    } else if (st.target > st.current) {
       st.current++;
       st.phase = (st.phase + 1) & 0x07;
       st.lastStepDir = 1;
@@ -419,23 +437,16 @@ static void tickStepper(uint8_t i) {
       st.phase = (st.phase + 7) & 0x07;
       st.lastStepDir = -1;
     }
-    st.target = st.current;
-  } else if (st.target > st.current) {
-    st.current++;
-    st.phase = (st.phase + 1) & 0x07;
-    st.lastStepDir = 1;
-  } else {
-    st.current--;
-    st.phase = (st.phase + 7) & 0x07;
-    st.lastStepDir = -1;
+
+    digitalWrite(sd.stepper.in1, HALFSEQ[st.phase][0] ? HIGH : LOW);
+    digitalWrite(sd.stepper.in2, HALFSEQ[st.phase][1] ? HIGH : LOW);
+    digitalWrite(sd.stepper.in3, HALFSEQ[st.phase][2] ? HIGH : LOW);
+    digitalWrite(sd.stepper.in4, HALFSEQ[st.phase][3] ? HIGH : LOW);
+
+    st.nextStepDueUs += intervalUs;
+    stepsDone++;
+    nowUs = micros();
   }
-
-  digitalWrite(sd.stepper.in1, HALFSEQ[st.phase][0] ? HIGH : LOW);
-  digitalWrite(sd.stepper.in2, HALFSEQ[st.phase][1] ? HIGH : LOW);
-  digitalWrite(sd.stepper.in3, HALFSEQ[st.phase][2] ? HIGH : LOW);
-  digitalWrite(sd.stepper.in4, HALFSEQ[st.phase][3] ? HIGH : LOW);
-
-  st.nextStepDueUs = nowUs + intervalUs;
 }
 
 void tickSubdevices() {

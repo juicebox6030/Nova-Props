@@ -25,6 +25,8 @@ struct BufferedUniverseFrame {
   uint16_t universe = 0;
   uint32_t lastApplyMs = 0;
   uint32_t lastSeenMs = 0;
+  uint8_t lastSeq = 0;
+  bool seqValid = false;
   uint8_t slots[512] = {0};
 };
 
@@ -44,6 +46,8 @@ static BufferedUniverseFrame* findBufferedFrame(uint16_t universe, bool create, 
       bufferedFrames[i].dirty = false;
       bufferedFrames[i].lastApplyMs = 0;
       bufferedFrames[i].lastSeenMs = nowMs;
+      bufferedFrames[i].lastSeq = 0;
+      bufferedFrames[i].seqValid = false;
       return &bufferedFrames[i];
     }
   }
@@ -100,35 +104,48 @@ void handleSacnPackets() {
     lastUniverseSeenValue = u;
     sacnPacketCount++;
 
-    if (cfg.sacnBufferMs == 0) {
-      applySacnToSubdevices(u, &p.property_values[1], 512);
-    } else {
-      uint32_t nowMs = millis();
-      BufferedUniverseFrame* frame = findBufferedFrame(u, true, nowMs);
-      if (frame) {
-        const uint8_t* incoming = &p.property_values[1];
-        if (!frame->hasFrame || memcmp(frame->slots, incoming, sizeof(frame->slots)) != 0) {
-          memcpy(frame->slots, incoming, sizeof(frame->slots));
-          frame->dirty = true;
-        }
-        frame->hasFrame = true;
-        frame->lastSeenMs = nowMs;
-      }
+    const uint8_t startCode = p.property_values[0];
+    if (startCode != 0x00) continue;
+
+    const bool isPreview = (p.options & 0x80) != 0;
+    if (isPreview) continue;
+
+    uint32_t nowMs = millis();
+    BufferedUniverseFrame* frame = findBufferedFrame(u, true, nowMs);
+    if (!frame) continue;
+
+    const uint8_t seq = p.sequence_number;
+    if (frame->seqValid) {
+      const uint8_t diff = (uint8_t)(seq - frame->lastSeq);
+      if (diff == 0) continue;
+      if (diff > 200) continue;
     }
+    frame->lastSeq = seq;
+    frame->seqValid = true;
+
+    const uint8_t* incoming = &p.property_values[1];
+    bool changed = memcmp(frame->slots, incoming, sizeof(frame->slots)) != 0;
+    if (changed) {
+      memcpy(frame->slots, incoming, sizeof(frame->slots));
+    }
+    if (!frame->hasFrame || changed) {
+      frame->dirty = true;
+    }
+    frame->hasFrame = true;
+    frame->lastSeenMs = nowMs;
 
     haveDmx = true;
-    lastDmxMs = millis();
+    lastDmxMs = nowMs;
   }
 
-  if (cfg.sacnBufferMs == 0) return;
-
-  uint32_t now = millis();
+  const uint32_t now = millis();
   for (uint8_t i = 0; i < MAX_BUFFERED_UNIVERSES; i++) {
     auto& frame = bufferedFrames[i];
-    if (!frame.hasFrame || frame.universe == 0) continue;
-    if (!frame.dirty && frame.lastApplyMs != 0) continue;
+    if (frame.universe == 0 || !frame.hasFrame || !frame.dirty) continue;
 
-    if (frame.lastApplyMs != 0 && (uint32_t)(now - frame.lastApplyMs) < cfg.sacnBufferMs) continue;
+    if (cfg.sacnBufferMs != 0) {
+      if (frame.lastApplyMs != 0 && (uint32_t)(now - frame.lastApplyMs) < cfg.sacnBufferMs) continue;
+    }
 
     applySacnToSubdevices(frame.universe, frame.slots, 512);
     frame.lastApplyMs = now;
