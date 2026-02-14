@@ -37,6 +37,10 @@ void sanity() {
     if (sd.stepper.maxDegPerSec < 1.0f) sd.stepper.maxDegPerSec = 1.0f;
     if (sd.stepper.maxDegPerSec > 5000.0f) sd.stepper.maxDegPerSec = 5000.0f;
     if (sd.stepper.driver > STEPPER_DRIVER_GENERIC) sd.stepper.driver = STEPPER_DRIVER_GENERIC;
+    if (sd.stepper.seekMode > STEPPER_SEEK_DIRECTIONAL) sd.stepper.seekMode = STEPPER_SEEK_SHORTEST_PATH;
+    if (sd.stepper.seekForwardDirection > STEPPER_DIR_CCW) sd.stepper.seekForwardDirection = STEPPER_DIR_CW;
+    if (sd.stepper.seekReturnDirection > STEPPER_DIR_CCW) sd.stepper.seekReturnDirection = STEPPER_DIR_CCW;
+    if (sd.stepper.seekTieBreakMode > STEPPER_TIEBREAK_OPPOSITE_LAST) sd.stepper.seekTieBreakMode = STEPPER_TIEBREAK_OPPOSITE_LAST;
     if (sd.dc.driver > DC_DRIVER_GENERIC) sd.dc.driver = DC_DRIVER_GENERIC;
     if (sd.pixels.driver > PIXEL_DRIVER_GENERIC) sd.pixels.driver = PIXEL_DRIVER_GENERIC;
     if (sd.stepper.minDeg > sd.stepper.maxDeg) {
@@ -83,7 +87,33 @@ static void loadSubdevice(JsonObject obj, SubdeviceConfig& sd) {
   sd.stepper.homeSwitchPin = obj["stepper"]["homeSwitchPin"] | sd.stepper.homeSwitchPin;
   sd.stepper.homeSwitchActiveLow = obj["stepper"]["homeSwitchActiveLow"] | sd.stepper.homeSwitchActiveLow;
   sd.stepper.position16Bit = obj["stepper"]["position16Bit"] | sd.stepper.position16Bit;
-  sd.stepper.seekClockwise = obj["stepper"]["seekClockwise"] | sd.stepper.seekClockwise;
+
+  JsonVariant seekModeVar = obj["stepper"]["seekMode"];
+  JsonVariant seekForwardDirVar = obj["stepper"]["seekForwardDirection"];
+  JsonVariant seekReturnDirVar = obj["stepper"]["seekReturnDirection"];
+  JsonVariant seekTieBreakVar = obj["stepper"]["seekTieBreakMode"];
+
+  if (!seekModeVar.isNull()) {
+    sd.stepper.seekMode = (StepperSeekMode)((int)seekModeVar | (int)sd.stepper.seekMode);
+  }
+  if (!seekForwardDirVar.isNull()) {
+    sd.stepper.seekForwardDirection = (StepperDirection)((int)seekForwardDirVar | (int)sd.stepper.seekForwardDirection);
+  }
+  if (!seekReturnDirVar.isNull()) {
+    sd.stepper.seekReturnDirection = (StepperDirection)((int)seekReturnDirVar | (int)sd.stepper.seekReturnDirection);
+  }
+  if (!seekTieBreakVar.isNull()) {
+    sd.stepper.seekTieBreakMode = (StepperTieBreakMode)((int)seekTieBreakVar | (int)sd.stepper.seekTieBreakMode);
+  }
+
+  // Legacy migration path: map old seekClockwise to directional forward/return config.
+  JsonVariant legacySeekClockwise = obj["stepper"]["seekClockwise"];
+  if (seekModeVar.isNull() && !legacySeekClockwise.isNull()) {
+    bool seekClockwise = legacySeekClockwise.as<bool>();
+    sd.stepper.seekMode = STEPPER_SEEK_DIRECTIONAL;
+    sd.stepper.seekForwardDirection = seekClockwise ? STEPPER_DIR_CW : STEPPER_DIR_CCW;
+    sd.stepper.seekReturnDirection = seekClockwise ? STEPPER_DIR_CW : STEPPER_DIR_CCW;
+  }
 
   sd.relay.pin = obj["relay"]["pin"] | sd.relay.pin;
   sd.relay.activeHigh = obj["relay"]["activeHigh"] | sd.relay.activeHigh;
@@ -131,7 +161,10 @@ static void saveSubdevice(JsonArray arr, const SubdeviceConfig& sd) {
   obj["stepper"]["homeSwitchPin"] = sd.stepper.homeSwitchPin;
   obj["stepper"]["homeSwitchActiveLow"] = sd.stepper.homeSwitchActiveLow;
   obj["stepper"]["position16Bit"] = sd.stepper.position16Bit;
-  obj["stepper"]["seekClockwise"] = sd.stepper.seekClockwise;
+  obj["stepper"]["seekMode"] = (int)sd.stepper.seekMode;
+  obj["stepper"]["seekForwardDirection"] = (int)sd.stepper.seekForwardDirection;
+  obj["stepper"]["seekReturnDirection"] = (int)sd.stepper.seekReturnDirection;
+  obj["stepper"]["seekTieBreakMode"] = (int)sd.stepper.seekTieBreakMode;
 
   obj["relay"]["pin"] = sd.relay.pin;
   obj["relay"]["activeHigh"] = sd.relay.activeHigh;

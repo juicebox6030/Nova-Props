@@ -67,6 +67,28 @@ static String driverOptions(const DriverDescriptor* descriptors, size_t count, u
   return s;
 }
 
+static String stepperSeekModeOptions(StepperSeekMode selected) {
+  String s;
+  s += "<option value='" + String(STEPPER_SEEK_SHORTEST_PATH) + "'" + String(selected == STEPPER_SEEK_SHORTEST_PATH ? " selected" : "") + ">Shortest path</option>";
+  s += "<option value='" + String(STEPPER_SEEK_DIRECTIONAL) + "'" + String(selected == STEPPER_SEEK_DIRECTIONAL ? " selected" : "") + ">Directional (forward/return)</option>";
+  return s;
+}
+
+static String stepperDirectionOptions(StepperDirection selected) {
+  String s;
+  s += "<option value='" + String(STEPPER_DIR_CW) + "'" + String(selected == STEPPER_DIR_CW ? " selected" : "") + ">CW</option>";
+  s += "<option value='" + String(STEPPER_DIR_CCW) + "'" + String(selected == STEPPER_DIR_CCW ? " selected" : "") + ">CCW</option>";
+  return s;
+}
+
+static String stepperTieBreakOptions(StepperTieBreakMode selected) {
+  String s;
+  s += "<option value='" + String(STEPPER_TIEBREAK_CW) + "'" + String(selected == STEPPER_TIEBREAK_CW ? " selected" : "") + ">Prefer CW</option>";
+  s += "<option value='" + String(STEPPER_TIEBREAK_CCW) + "'" + String(selected == STEPPER_TIEBREAK_CCW ? " selected" : "") + ">Prefer CCW</option>";
+  s += "<option value='" + String(STEPPER_TIEBREAK_OPPOSITE_LAST) + "'" + String(selected == STEPPER_TIEBREAK_OPPOSITE_LAST ? " selected" : "") + ">Opposite of last direction</option>";
+  return s;
+}
+
 static void renderTypeSpecificFields(String& s, const SubdeviceConfig& sd) {
   switch (sd.type) {
     case SUBDEVICE_STEPPER:
@@ -77,9 +99,12 @@ static void renderTypeSpecificFields(String& s, const SubdeviceConfig& sd) {
            "IN4 <input name='st4' type='number' value='" + String(sd.stepper.in4) + "'><br><br>"
            "Steps/rev <input name='stspr' type='number' value='" + String(sd.stepper.stepsPerRev) + "'> "
            "Max deg/sec <input name='stspd' type='number' step='0.1' value='" + String(sd.stepper.maxDegPerSec) + "'><br>"
-           "<label><input type='checkbox' name='st16' " + String(sd.stepper.position16Bit ? "checked" : "") + ">16-bit position (CH1+CH2)</label> "
-           "<label><input type='checkbox' name='stseekcw' " + String(sd.stepper.seekClockwise ? "checked" : "") + ">Seek CW for absolute moves</label><br>"
-           "<small>8-bit mode: CH1 absolute + CH2 speed. 16-bit mode: CH1+CH2 absolute + CH3 speed. Speed: 0 off, 1..127 fast→slow CW, 128..255 slow→fast CW.</small><br><br>"
+           "<label><input type='checkbox' name='st16' " + String(sd.stepper.position16Bit ? "checked" : "") + ">16-bit position (CH1+CH2)</label><br>"
+           "Seek mode <select name='stseekmode'>" + stepperSeekModeOptions(sd.stepper.seekMode) + "</select> "
+           "Forward direction <select name='stfwddir'>" + stepperDirectionOptions(sd.stepper.seekForwardDirection) + "</select> "
+           "Return direction <select name='stretdir'>" + stepperDirectionOptions(sd.stepper.seekReturnDirection) + "</select><br>"
+           "Shortest-path tiebreaker <select name='sttiebreak'>" + stepperTieBreakOptions(sd.stepper.seekTieBreakMode) + "</select><br>"
+           "<small>8-bit mode: CH1 absolute + CH2 speed. 16-bit mode: CH1+CH2 absolute + CH3 speed. Speed: 0 uses absolute seek settings; non-zero uses velocity override.</small><br><br>"
            "<label><input type='checkbox' name='stlim' " + String(sd.stepper.limitsEnabled ? "checked" : "") + ">Limits</label> "
            "Min <input name='stmin' type='number' step='0.1' value='" + String(sd.stepper.minDeg) + "'> "
            "Max <input name='stmax' type='number' step='0.1' value='" + String(sd.stepper.maxDeg) + "'><br><br>"
@@ -285,7 +310,10 @@ static void handleUpdateSubdevice() {
     sd.stepper.homeSwitchPin = (uint8_t)server.arg("sthomepin").toInt();
     sd.stepper.homeSwitchActiveLow = server.hasArg("sthomeal");
     sd.stepper.position16Bit = server.hasArg("st16");
-    sd.stepper.seekClockwise = server.hasArg("stseekcw");
+    sd.stepper.seekMode = (StepperSeekMode)server.arg("stseekmode").toInt();
+    sd.stepper.seekForwardDirection = (StepperDirection)server.arg("stfwddir").toInt();
+    sd.stepper.seekReturnDirection = (StepperDirection)server.arg("stretdir").toInt();
+    sd.stepper.seekTieBreakMode = (StepperTieBreakMode)server.arg("sttiebreak").toInt();
   } else if (sd.type == SUBDEVICE_DC_MOTOR) {
     sd.dc.driver = (DcDriverType)server.arg("dcdrv").toInt();
     sd.dc.dirPin = (uint8_t)server.arg("dcdir").toInt();
