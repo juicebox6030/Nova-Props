@@ -149,6 +149,8 @@ class SimApp:
         self.packet_count = 0
         self.last_universe = 0
         self.dmx_active = False
+        self.stepper_safety_enabled: dict[str, bool] = {}
+        self.stepper_stored_command: dict[str, dict[str, Any]] = {}
         self._load()
 
     def _default_subdevices(self) -> list[SubdeviceConfig]:
@@ -282,8 +284,33 @@ class SimApp:
                 self.probe.emit("dc", {"name": sd.name, "value": signed, "dir": direction})
             elif sd.type == 0:  # stepper
                 raw = ((slots.get(addr, 0) << 8) | slots.get(addr + 1, 0))
+                control = slots.get(addr + 2, 0)
+                safety_enabled = (control & 0x01) != 0
+                speed_raw = control & 0xFE
                 deg = (raw / 65535.0) * 360.0
-                self.probe.emit("stepper", {"name": sd.name, "target_deg": round(deg, 3)})
+
+                if not safety_enabled:
+                    self.stepper_safety_enabled[sd.name] = False
+                    if speed_raw == 0:
+                        self.stepper_stored_command[sd.name] = {"mode": "absolute", "target_deg": round(deg, 3)}
+                    else:
+                        self.stepper_stored_command[sd.name] = {"mode": "velocity", "speed_raw": speed_raw}
+                    self.probe.emit("stepper_safety", {"name": sd.name, "enabled": False, "holding": True})
+                    continue
+
+                was_disabled = self.stepper_safety_enabled.get(sd.name, True) is False
+                self.stepper_safety_enabled[sd.name] = True
+                if was_disabled and sd.name in self.stepper_stored_command:
+                    stored = self.stepper_stored_command.pop(sd.name)
+                    self.probe.emit("stepper_safety", {"name": sd.name, "enabled": True, "restored": stored})
+                    continue
+
+                self.probe.emit("stepper", {
+                    "name": sd.name,
+                    "target_deg": round(deg, 3),
+                    "speed_raw": speed_raw,
+                    "safety_enabled": True,
+                })
             elif sd.type == 2:  # relay
                 on = slots.get(addr, 0) >= 128
                 self.probe.emit("relay", {"name": sd.name, "on": on})

@@ -45,8 +45,10 @@ A single config can contain multiple subdevices.
 
 - DC subdevices consume 1 slot by default (`CH1` 8-bit signed-style command) or 2 slots when `command16Bit` is enabled (`CH1+CH2`).
 - Stepper subdevices consume 2 or 3 DMX channels per mapping:
-  - 8-bit mode: `CH1` absolute position, `CH2` velocity override.
-  - 16-bit mode: `CH1+CH2` absolute position, `CH3` velocity override.
+  - 8-bit mode: `CH1` absolute position, `CH2` control.
+  - 16-bit mode: `CH1+CH2` absolute position, `CH3` control.
+  - Control channel uses bit 0 as a safety gate (`1`=enabled, `0`=disabled/hold). While disabled, firmware stores the most recent motion command and restores it when safety returns to `1`.
+  - Control bits 7..1 retain velocity override semantics (`0` => absolute positioning mode, non-zero => velocity mode).
 - Stepper runtime stores internal step position and target state continuously between packets; on DMX loss it now de-energizes coils but preserves logical position/target state so reconnect does not introduce synthetic catch-up motion.
 - Absolute seek behavior is configurable per stepper: shortest-path mode (with selectable 180° tiebreak: CW/CCW/opposite-last-direction) or directional mode with independent forward/return direction settings (CW/CCW).
 - Subdevice runtime configs now include driver enums (`Generic` currently) for Stepper/DC/Pixels to support descriptor-based driver expansion.
