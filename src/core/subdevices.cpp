@@ -4,6 +4,7 @@
 
 #if USE_PIXELS
 #include <Adafruit_NeoPixel.h>
+#include <new>
 #endif
 
 #include "core/config.h"
@@ -451,7 +452,8 @@ static void initPixelDevice(uint8_t i) {
   }
   if (sd.pixels.count == 0) return;
 
-  pixelStrips[i] = new Adafruit_NeoPixel(sd.pixels.count, sd.pixels.pin, NEO_GRB + NEO_KHZ800);
+  pixelStrips[i] = new (std::nothrow) Adafruit_NeoPixel(sd.pixels.count, sd.pixels.pin, NEO_GRB + NEO_KHZ800);
+  if (!pixelStrips[i]) return;
   pixelStrips[i]->begin();
   pixelStrips[i]->setBrightness(sd.pixels.brightness);
   pixelStrips[i]->clear();
@@ -461,7 +463,27 @@ static void initPixelDevice(uint8_t i) {
 }
 #endif
 
+static void clearSubdeviceRuntimeState() {
+  for (uint8_t i = 0; i < MAX_SUBDEVICES; i++) {
+    stepperStates[i] = StepperState();
+    dcOutputStates[i] = DcOutputState();
+    pixelCommands[i] = PixelCommand();
+    relayStates[i] = false;
+    ledStates[i] = false;
+    dcTestStates[i] = false;
+#if USE_PIXELS
+    if (pixelStrips[i]) {
+      delete pixelStrips[i];
+      pixelStrips[i] = nullptr;
+    }
+    pixelTestStates[i] = false;
+#endif
+  }
+}
+
 void initSubdevices() {
+  clearSubdeviceRuntimeState();
+
   for (uint8_t i = 0; i < cfg.subdeviceCount && i < MAX_SUBDEVICES; i++) {
     if (!cfg.subdevices[i].enabled) continue;
     switch (cfg.subdevices[i].type) {

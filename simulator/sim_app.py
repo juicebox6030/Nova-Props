@@ -266,6 +266,15 @@ class SimApp:
             return True, "Pixels test triggered"
         return False, "Unsupported subdevice type"
 
+    def home_stepper_subdevice(self, idx: int) -> tuple[bool, str]:
+        if idx < 0 or idx >= len(self.cfg.subdevices):
+            return False, "Invalid subdevice id"
+        sd = self.cfg.subdevices[idx]
+        if sd.type != 0:
+            return False, "Invalid id or unsupported type"
+        self.probe.emit("stepper_home", {"name": sd.name, "homeOffsetSteps": sd.stepper.homeOffsetSteps})
+        return True, "Stepper home triggered"
+
     def apply_dmx(self, universe: int, slots: dict[int, int]) -> None:
         self.packet_count += 1
         self.last_universe = universe
@@ -503,10 +512,25 @@ def render_subdevice_form(i: int, sd: SubdeviceConfig) -> str:
 
     s += render_type_specific_fields(sd)
 
-    s += "<button type='submit'>Save Subdevice</button> "
-    s += f"<a href='/subdevices/test?id={i}'>Run Test</a> | "
-    s += f"<a href='/subdevices/delete?id={i}' onclick=\"return confirm('Delete subdevice?');\">Delete</a>"
-    s += "</form></details>"
+    s += "<button type='submit'>Save Subdevice</button></form> "
+    s += (
+        "<form method='POST' action='/subdevices/test' style='display:inline;'>"
+        f"<input type='hidden' name='id' value='{i}'>"
+        "<button type='submit'>Run Test</button></form> "
+    )
+    if sd.type == 0:
+        s += (
+            "<form method='POST' action='/subdevices/home' style='display:inline;'>"
+            f"<input type='hidden' name='id' value='{i}'>"
+            "<button type='submit'>Home/Zero</button></form> "
+        )
+    s += (
+        "<form method='POST' action='/subdevices/delete' style='display:inline;' "
+        "onsubmit=\"return confirm('Delete subdevice?');\">"
+        f"<input type='hidden' name='id' value='{i}'>"
+        "<button type='submit'>Delete</button></form>"
+    )
+    s += "</details>"
     return s
 
 
@@ -565,18 +589,6 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, json.dumps(self.app.probe.snapshot(), indent=2), "application/json")
         if parsed.path == "/api/events/clear":
             self.app.probe.clear()
-            return self._redirect("/subdevices")
-        if parsed.path == "/subdevices/delete":
-            q = parse_qs(parsed.query)
-            idx = int(q.get("id", ["-1"])[0])
-            self.app.delete_subdevice(idx)
-            return self._redirect("/subdevices")
-        if parsed.path == "/subdevices/test":
-            q = parse_qs(parsed.query)
-            idx = int(q.get("id", ["-1"])[0])
-            ok, msg = self.app.run_subdevice_test(idx)
-            if not ok:
-                return self._send(400, msg, "text/plain")
             return self._redirect("/subdevices")
         self._send(404, "not found", "text/plain")
 
@@ -664,6 +676,31 @@ class Handler(BaseHTTPRequestHandler):
                 sd.pixels.brightness = int(data.get("pxb", [str(sd.pixels.brightness)])[0])
 
             self.app.save()
+            return self._redirect("/subdevices")
+
+        if parsed.path == "/subdevices/delete":
+            idx = int(data.get("id", ["-1"])[0])
+            if idx < 0 or idx >= len(self.app.cfg.subdevices):
+                return self._send(400, "Invalid id", "text/plain")
+            self.app.delete_subdevice(idx)
+            return self._redirect("/subdevices")
+
+        if parsed.path == "/subdevices/test":
+            idx = int(data.get("id", ["-1"])[0])
+            if idx < 0 or idx >= len(self.app.cfg.subdevices):
+                return self._send(400, "Invalid id", "text/plain")
+            ok, msg = self.app.run_subdevice_test(idx)
+            if not ok:
+                return self._send(400, msg, "text/plain")
+            return self._redirect("/subdevices")
+
+        if parsed.path == "/subdevices/home":
+            idx = int(data.get("id", ["-1"])[0])
+            if idx < 0 or idx >= len(self.app.cfg.subdevices):
+                return self._send(400, "Invalid id", "text/plain")
+            ok, msg = self.app.home_stepper_subdevice(idx)
+            if not ok:
+                return self._send(400, msg, "text/plain")
             return self._redirect("/subdevices")
 
         if parsed.path == "/sim/dmx":

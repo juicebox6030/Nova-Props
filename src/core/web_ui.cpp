@@ -213,13 +213,32 @@ static void renderSubdeviceForm(String& s, uint8_t i) {
 
   renderTypeSpecificFields(s, sd);
 
-  s += "<button type='submit'>Save Subdevice</button> ";
-  s += "<a href='/subdevices/test?id=" + String(i) + "'>Run Test</a> | ";
+  s += "<button type='submit'>Save Subdevice</button></form>";
+  s += "<form method='POST' action='/subdevices/test' style='display:inline;'>"
+       "<input type='hidden' name='id' value='" + String(i) + "'>"
+       "<button type='submit'>Run Test</button></form> ";
   if (sd.type == SUBDEVICE_STEPPER) {
-    s += "<a href='/subdevices/home?id=" + String(i) + "'>Home/Zero</a> | ";
+    s += "<form method='POST' action='/subdevices/home' style='display:inline;'>"
+         "<input type='hidden' name='id' value='" + String(i) + "'>"
+         "<button type='submit'>Home/Zero</button></form> ";
   }
-  s += "<a href='/subdevices/delete?id=" + String(i) + "' onclick=\"return confirm('Delete subdevice?');\">Delete</a>";
-  s += "</form></details>";
+  s += "<form method='POST' action='/subdevices/delete' style='display:inline;' onsubmit=\"return confirm('Delete subdevice?');\">"
+       "<input type='hidden' name='id' value='" + String(i) + "'>"
+       "<button type='submit'>Delete</button></form>";
+  s += "</details>";
+}
+
+static bool parseSubdeviceIndex(int& idx) {
+  if (!server.hasArg("id")) {
+    server.send(400, "text/plain", "Missing id");
+    return false;
+  }
+  idx = server.arg("id").toInt();
+  if (idx < 0 || idx >= cfg.subdeviceCount) {
+    server.send(400, "text/plain", "Invalid id");
+    return false;
+  }
+  return true;
 }
 
 static void handleSubdevices() {
@@ -348,11 +367,10 @@ static void handleUpdateSubdevice() {
 }
 
 static void handleDeleteSubdevice() {
-  int idx = server.arg("id").toInt();
-  if (!deleteSubdevice((uint8_t)idx)) {
-    server.send(400, "text/plain", "Invalid id");
-    return;
-  }
+  if (server.method() != HTTP_POST) { server.send(405, "text/plain", "Method Not Allowed"); return; }
+  int idx;
+  if (!parseSubdeviceIndex(idx)) return;
+  deleteSubdevice((uint8_t)idx);
   saveConfig();
   initSubdevices();
   restartSacn();
@@ -361,7 +379,9 @@ static void handleDeleteSubdevice() {
 }
 
 static void handleTestSubdevice() {
-  int idx = server.arg("id").toInt();
+  if (server.method() != HTTP_POST) { server.send(405, "text/plain", "Method Not Allowed"); return; }
+  int idx;
+  if (!parseSubdeviceIndex(idx)) return;
   if (!runSubdeviceTest((uint8_t)idx)) {
     server.send(400, "text/plain", "Invalid id or unsupported type");
     return;
@@ -371,7 +391,9 @@ static void handleTestSubdevice() {
 }
 
 static void handleHomeSubdevice() {
-  int idx = server.arg("id").toInt();
+  if (server.method() != HTTP_POST) { server.send(405, "text/plain", "Method Not Allowed"); return; }
+  int idx;
+  if (!parseSubdeviceIndex(idx)) return;
   if (!homeStepperSubdevice((uint8_t)idx)) {
     server.send(400, "text/plain", "Invalid id or unsupported type");
     return;
