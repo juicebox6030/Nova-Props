@@ -40,6 +40,7 @@ class SacnMapping:
 
 @dataclass
 class StepperRuntimeConfig:
+    driver: int = 0
     in1: int = 16
     in2: int = 17
     in3: int = 18
@@ -50,6 +51,14 @@ class StepperRuntimeConfig:
     minDeg: float = 0.0
     maxDeg: float = 360.0
     homeOffsetSteps: int = 0
+    homeSwitchEnabled: bool = False
+    homeSwitchPin: int = 255
+    homeSwitchActiveLow: bool = True
+    position16Bit: bool = False
+    seekMode: int = 0
+    seekForwardDirection: int = 0
+    seekReturnDirection: int = 1
+    seekTieBreakMode: int = 2
 
 
 @dataclass
@@ -140,6 +149,8 @@ class SimApp:
         self.packet_count = 0
         self.last_universe = 0
         self.dmx_active = False
+        self.stepper_safety_enabled: dict[str, bool] = {}
+        self.stepper_stored_command: dict[str, dict[str, Any]] = {}
         self._load()
 
     def _default_subdevices(self) -> list[SubdeviceConfig]:
@@ -255,6 +266,15 @@ class SimApp:
             return True, "Pixels test triggered"
         return False, "Unsupported subdevice type"
 
+    def home_stepper_subdevice(self, idx: int) -> tuple[bool, str]:
+        if idx < 0 or idx >= len(self.cfg.subdevices):
+            return False, "Invalid subdevice id"
+        sd = self.cfg.subdevices[idx]
+        if sd.type != 0:
+            return False, "Invalid id or unsupported type"
+        self.probe.emit("stepper_home", {"name": sd.name, "homeOffsetSteps": sd.stepper.homeOffsetSteps})
+        return True, "Stepper home triggered"
+
     def apply_dmx(self, universe: int, slots: dict[int, int]) -> None:
         self.packet_count += 1
         self.last_universe = universe
@@ -273,8 +293,33 @@ class SimApp:
                 self.probe.emit("dc", {"name": sd.name, "value": signed, "dir": direction})
             elif sd.type == 0:  # stepper
                 raw = ((slots.get(addr, 0) << 8) | slots.get(addr + 1, 0))
+                control = slots.get(addr + 2, 0)
+                safety_enabled = (control & 0x01) != 0
+                speed_raw = control & 0xFE
                 deg = (raw / 65535.0) * 360.0
-                self.probe.emit("stepper", {"name": sd.name, "target_deg": round(deg, 3)})
+
+                if not safety_enabled:
+                    self.stepper_safety_enabled[sd.name] = False
+                    if speed_raw == 0:
+                        self.stepper_stored_command[sd.name] = {"mode": "absolute", "target_deg": round(deg, 3)}
+                    else:
+                        self.stepper_stored_command[sd.name] = {"mode": "velocity", "speed_raw": speed_raw}
+                    self.probe.emit("stepper_safety", {"name": sd.name, "enabled": False, "holding": True})
+                    continue
+
+                was_disabled = self.stepper_safety_enabled.get(sd.name, True) is False
+                self.stepper_safety_enabled[sd.name] = True
+                if was_disabled and sd.name in self.stepper_stored_command:
+                    stored = self.stepper_stored_command.pop(sd.name)
+                    self.probe.emit("stepper_safety", {"name": sd.name, "enabled": True, "restored": stored})
+                    continue
+
+                self.probe.emit("stepper", {
+                    "name": sd.name,
+                    "target_deg": round(deg, 3),
+                    "speed_raw": speed_raw,
+                    "safety_enabled": True,
+                })
             elif sd.type == 2:  # relay
                 on = slots.get(addr, 0) >= 128
                 self.probe.emit("relay", {"name": sd.name, "on": on})
@@ -310,6 +355,27 @@ def type_options(selected: int) -> str:
         sel = " selected" if t == selected else ""
         out.append(f"<option value='{t}'{sel}>{SUBDEVICE_TYPES[t]}</option>")
     return "".join(out)
+
+def stepper_seek_mode_options(selected: int) -> str:
+    return "".join([
+        f"<option value='0'{' selected' if selected == 0 else ''}>Shortest path</option>",
+        f"<option value='1'{' selected' if selected == 1 else ''}>Directional (forward/return)</option>",
+    ])
+
+
+def stepper_direction_options(selected: int) -> str:
+    return "".join([
+        f"<option value='0'{' selected' if selected == 0 else ''}>CW</option>",
+        f"<option value='1'{' selected' if selected == 1 else ''}>CCW</option>",
+    ])
+
+
+def stepper_tiebreak_options(selected: int) -> str:
+    return "".join([
+        f"<option value='0'{' selected' if selected == 0 else ''}>Prefer CW</option>",
+        f"<option value='1'{' selected' if selected == 1 else ''}>Prefer CCW</option>",
+        f"<option value='2'{' selected' if selected == 2 else ''}>Opposite of last direction</option>",
+    ])
 
 
 def page_root(app: SimApp) -> str:
@@ -365,21 +431,35 @@ def page_dmx(app: SimApp) -> str:
 
 def render_type_specific_fields(sd: SubdeviceConfig) -> str:
     stlim = "checked" if sd.stepper.limitsEnabled else ""
+    st16 = "checked" if sd.stepper.position16Bit else ""
+    sthomen = "checked" if sd.stepper.homeSwitchEnabled else ""
+    sthomeal = "checked" if sd.stepper.homeSwitchActiveLow else ""
     rlah = "checked" if sd.relay.activeHigh else ""
     ledah = "checked" if sd.led.activeHigh else ""
 
     if sd.type == 0:
         return (
             "<fieldset><legend>Stepper</legend>"
+            "Driver <select name='stdrv'><option value='0' selected>Generic</option></select><br><br>"
             f"IN1 <input name='st1' type='number' value='{sd.stepper.in1}'> "
             f"IN2 <input name='st2' type='number' value='{sd.stepper.in2}'> "
             f"IN3 <input name='st3' type='number' value='{sd.stepper.in3}'> "
             f"IN4 <input name='st4' type='number' value='{sd.stepper.in4}'><br><br>"
             f"Steps/rev <input name='stspr' type='number' value='{sd.stepper.stepsPerRev}'> "
-            f"Max deg/sec <input name='stspd' type='number' step='0.1' value='{sd.stepper.maxDegPerSec}'><br><br>"
+            f"Max deg/sec <input name='stspd' type='number' step='0.1' value='{sd.stepper.maxDegPerSec}'><br>"
+            f"<label><input type='checkbox' name='st16' {st16}>16-bit position (CH1+CH2)</label><br>"
+            f"Seek mode <select name='stseekmode'>{stepper_seek_mode_options(sd.stepper.seekMode)}</select> "
+            f"Forward direction <select name='stfwddir'>{stepper_direction_options(sd.stepper.seekForwardDirection)}</select> "
+            f"Return direction <select name='stretdir'>{stepper_direction_options(sd.stepper.seekReturnDirection)}</select><br>"
+            f"Shortest-path tiebreaker <select name='sttiebreak'>{stepper_tiebreak_options(sd.stepper.seekTieBreakMode)}</select><br>"
+            "<small>8-bit mode: CH1 absolute + CH2 speed. 16-bit mode: CH1+CH2 absolute + CH3 speed. Speed: 0 uses absolute seek settings; non-zero uses velocity override.</small><br><br>"
             f"<label><input type='checkbox' name='stlim' {stlim}>Limits</label> "
             f"Min <input name='stmin' type='number' step='0.1' value='{sd.stepper.minDeg}'> "
-            f"Max <input name='stmax' type='number' step='0.1' value='{sd.stepper.maxDeg}'></fieldset><br>"
+            f"Max <input name='stmax' type='number' step='0.1' value='{sd.stepper.maxDeg}'><br><br>"
+            f"<label><input type='checkbox' name='sthomen' {sthomen}>E-stop/Home switch</label> "
+            f"Pin <input name='sthomepin' type='number' min='0' max='255' value='{sd.stepper.homeSwitchPin}'> "
+            f"<label><input type='checkbox' name='sthomeal' {sthomeal}>Active low</label>"
+            "</fieldset><br>"
         )
     if sd.type == 1:
         return (
@@ -432,10 +512,25 @@ def render_subdevice_form(i: int, sd: SubdeviceConfig) -> str:
 
     s += render_type_specific_fields(sd)
 
-    s += "<button type='submit'>Save Subdevice</button> "
-    s += f"<a href='/subdevices/test?id={i}'>Run Test</a> | "
-    s += f"<a href='/subdevices/delete?id={i}' onclick=\"return confirm('Delete subdevice?');\">Delete</a>"
-    s += "</form></details>"
+    s += "<button type='submit'>Save Subdevice</button></form> "
+    s += (
+        "<form method='POST' action='/subdevices/test' style='display:inline;'>"
+        f"<input type='hidden' name='id' value='{i}'>"
+        "<button type='submit'>Run Test</button></form> "
+    )
+    if sd.type == 0:
+        s += (
+            "<form method='POST' action='/subdevices/home' style='display:inline;'>"
+            f"<input type='hidden' name='id' value='{i}'>"
+            "<button type='submit'>Home/Zero</button></form> "
+        )
+    s += (
+        "<form method='POST' action='/subdevices/delete' style='display:inline;' "
+        "onsubmit=\"return confirm('Delete subdevice?');\">"
+        f"<input type='hidden' name='id' value='{i}'>"
+        "<button type='submit'>Delete</button></form>"
+    )
+    s += "</details>"
     return s
 
 
@@ -495,18 +590,6 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/events/clear":
             self.app.probe.clear()
             return self._redirect("/subdevices")
-        if parsed.path == "/subdevices/delete":
-            q = parse_qs(parsed.query)
-            idx = int(q.get("id", ["-1"])[0])
-            self.app.delete_subdevice(idx)
-            return self._redirect("/subdevices")
-        if parsed.path == "/subdevices/test":
-            q = parse_qs(parsed.query)
-            idx = int(q.get("id", ["-1"])[0])
-            ok, msg = self.app.run_subdevice_test(idx)
-            if not ok:
-                return self._send(400, msg, "text/plain")
-            return self._redirect("/subdevices")
         self._send(404, "not found", "text/plain")
 
     def do_POST(self) -> None:
@@ -553,6 +636,7 @@ class Handler(BaseHTTPRequestHandler):
             sd.map.startAddr = int(data.get("a", [str(sd.map.startAddr)])[0])
 
             if sd.type == 0:
+                sd.stepper.driver = int(data.get("stdrv", [str(sd.stepper.driver)])[0])
                 sd.stepper.in1 = int(data.get("st1", [str(sd.stepper.in1)])[0])
                 sd.stepper.in2 = int(data.get("st2", [str(sd.stepper.in2)])[0])
                 sd.stepper.in3 = int(data.get("st3", [str(sd.stepper.in3)])[0])
@@ -562,6 +646,14 @@ class Handler(BaseHTTPRequestHandler):
                 sd.stepper.limitsEnabled = "stlim" in data
                 sd.stepper.minDeg = float(data.get("stmin", [str(sd.stepper.minDeg)])[0])
                 sd.stepper.maxDeg = float(data.get("stmax", [str(sd.stepper.maxDeg)])[0])
+                sd.stepper.homeSwitchEnabled = "sthomen" in data
+                sd.stepper.homeSwitchPin = int(data.get("sthomepin", [str(sd.stepper.homeSwitchPin)])[0])
+                sd.stepper.homeSwitchActiveLow = "sthomeal" in data
+                sd.stepper.position16Bit = "st16" in data
+                sd.stepper.seekMode = int(data.get("stseekmode", [str(sd.stepper.seekMode)])[0])
+                sd.stepper.seekForwardDirection = int(data.get("stfwddir", [str(sd.stepper.seekForwardDirection)])[0])
+                sd.stepper.seekReturnDirection = int(data.get("stretdir", [str(sd.stepper.seekReturnDirection)])[0])
+                sd.stepper.seekTieBreakMode = int(data.get("sttiebreak", [str(sd.stepper.seekTieBreakMode)])[0])
             elif sd.type == 1:
                 sd.dc.dirPin = int(data.get("dcdir", [str(sd.dc.dirPin)])[0])
                 sd.dc.pwmPin = int(data.get("dcpwm", [str(sd.dc.pwmPin)])[0])
@@ -586,6 +678,31 @@ class Handler(BaseHTTPRequestHandler):
             self.app.save()
             return self._redirect("/subdevices")
 
+        if parsed.path == "/subdevices/delete":
+            idx = int(data.get("id", ["-1"])[0])
+            if idx < 0 or idx >= len(self.app.cfg.subdevices):
+                return self._send(400, "Invalid id", "text/plain")
+            self.app.delete_subdevice(idx)
+            return self._redirect("/subdevices")
+
+        if parsed.path == "/subdevices/test":
+            idx = int(data.get("id", ["-1"])[0])
+            if idx < 0 or idx >= len(self.app.cfg.subdevices):
+                return self._send(400, "Invalid id", "text/plain")
+            ok, msg = self.app.run_subdevice_test(idx)
+            if not ok:
+                return self._send(400, msg, "text/plain")
+            return self._redirect("/subdevices")
+
+        if parsed.path == "/subdevices/home":
+            idx = int(data.get("id", ["-1"])[0])
+            if idx < 0 or idx >= len(self.app.cfg.subdevices):
+                return self._send(400, "Invalid id", "text/plain")
+            ok, msg = self.app.home_stepper_subdevice(idx)
+            if not ok:
+                return self._send(400, msg, "text/plain")
+            return self._redirect("/subdevices")
+
         if parsed.path == "/sim/dmx":
             universe = int(data.get("universe", ["1"])[0])
             try:
@@ -599,7 +716,33 @@ class Handler(BaseHTTPRequestHandler):
         self._send(404, "not found", "text/plain")
 
 
+
+def firmware_ui_sync_report() -> list[str]:
+    web_ui_cpp = ROOT.parent / "src" / "core" / "web_ui.cpp"
+    if not web_ui_cpp.exists():
+        return ["firmware web_ui.cpp not found; cannot compare HTML field names"]
+
+    fw = web_ui_cpp.read_text()
+    required_fields = [
+        "stseekmode",
+        "stfwddir",
+        "stretdir",
+        "sttiebreak",
+        "st16",
+        "sthomen",
+        "sthomepin",
+        "sthomeal",
+    ]
+
+    warnings: list[str] = []
+    for field in required_fields:
+        if f"name='{field}'" not in fw:
+            warnings.append(f"firmware missing expected field {field}")
+    return warnings
+
 def main() -> None:
+    for warning in firmware_ui_sync_report():
+        print(f"[sim warning] {warning}")
     app = SimApp(CONFIG_PATH)
     Handler.app = app
     host = os.environ.get("SIM_HOST", "127.0.0.1")

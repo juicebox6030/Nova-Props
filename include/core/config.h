@@ -19,6 +19,22 @@ enum StepperDriverType : uint8_t {
   STEPPER_DRIVER_GENERIC = 0,
 };
 
+enum StepperSeekMode : uint8_t {
+  STEPPER_SEEK_SHORTEST_PATH = 0,
+  STEPPER_SEEK_DIRECTIONAL = 1,
+};
+
+enum StepperDirection : uint8_t {
+  STEPPER_DIR_CW = 0,
+  STEPPER_DIR_CCW = 1,
+};
+
+enum StepperTieBreakMode : uint8_t {
+  STEPPER_TIEBREAK_CW = 0,
+  STEPPER_TIEBREAK_CCW = 1,
+  STEPPER_TIEBREAK_OPPOSITE_LAST = 2,
+};
+
 enum DcDriverType : uint8_t {
   DC_DRIVER_GENERIC = 0,
 };
@@ -50,7 +66,11 @@ struct StepperRuntimeConfig {
   uint8_t homeSwitchPin = 255;
   bool homeSwitchActiveLow = true;
   bool position16Bit = false;
-  bool seekClockwise = true;
+  StepperSeekMode seekMode = STEPPER_SEEK_SHORTEST_PATH;
+  StepperDirection seekForwardDirection = STEPPER_DIR_CW;
+  StepperDirection seekReturnDirection = STEPPER_DIR_CCW;
+  StepperTieBreakMode seekTieBreakMode = STEPPER_TIEBREAK_OPPOSITE_LAST;
+  bool seekClockwise = true; // legacy config fallback
 };
 
 struct DcMotorRuntimeConfig {

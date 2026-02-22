@@ -4,6 +4,7 @@
 
 #if USE_PIXELS
 #include <Adafruit_NeoPixel.h>
+#include <new>
 #endif
 
 #include "core/config.h"
@@ -14,9 +15,19 @@ struct StepperState {
   uint8_t phase = 0;
   uint32_t nextStepDueUs = 0;
   uint32_t stepIntervalUs = 1000;
+  bool isMoving = false;
+  bool coilsEnergized = false;
   bool velocityMode = false;
   int8_t velocityDir = 1;
   float velocityDegPerSec = 0.0f;
+  uint8_t lastVelocityRaw = 0;
+  int32_t lastAbsoluteInputWithinRev = -1;
+  int8_t lastStepDir = 0;
+  bool safetyEnabled = true;
+  bool hasStoredCommand = false;
+  bool storedVelocityMode = false;
+  int32_t storedTargetWithinRev = 0;
+  uint8_t storedSpeedRaw = 0;
 };
 
 struct DcOutputState {
@@ -52,6 +63,13 @@ static constexpr uint8_t HALFSEQ[8][4] = {
 };
 
 static uint32_t computeStepperIntervalUs(uint16_t stepsPerRev, float degPerSec);
+static void applyStepperCoils(uint8_t i);
+static void markStepperCommandReady(uint8_t i);
+static int32_t clampStepperTargetToLimits(const SubdeviceConfig& sd, int32_t target);
+static bool isStepperTimeDue(uint32_t nowUs, uint32_t dueUs);
+static void applyStepperControlCommand(uint8_t i, int32_t targetWithinRev, uint8_t speedRaw);
+static void storeStepperControlCommand(uint8_t i, int32_t targetWithinRev, uint8_t speedRaw);
+static void disableStepperForSafety(uint8_t i);
 
 
 static bool readStepperHomeSwitch(const SubdeviceConfig& sd) {
@@ -67,6 +85,26 @@ static void setStepperCoilsLow(const SubdeviceConfig& sd) {
   digitalWrite(sd.stepper.in4, LOW);
 }
 
+static void applyStepperCoils(uint8_t i) {
+  auto& sd = cfg.subdevices[i];
+  auto& st = stepperStates[i];
+  digitalWrite(sd.stepper.in1, HALFSEQ[st.phase][0] ? HIGH : LOW);
+  digitalWrite(sd.stepper.in2, HALFSEQ[st.phase][1] ? HIGH : LOW);
+  digitalWrite(sd.stepper.in3, HALFSEQ[st.phase][2] ? HIGH : LOW);
+  digitalWrite(sd.stepper.in4, HALFSEQ[st.phase][3] ? HIGH : LOW);
+  st.coilsEnergized = true;
+}
+
+static bool isStepperTimeDue(uint32_t nowUs, uint32_t dueUs) {
+  return (int32_t)(nowUs - dueUs) >= 0;
+}
+
+static void markStepperCommandReady(uint8_t i) {
+  auto& st = stepperStates[i];
+  st.isMoving = true;
+  st.nextStepDueUs = micros();
+}
+
 static void homeStepperState(uint8_t i) {
   auto& sd = cfg.subdevices[i];
   auto& st = stepperStates[i];
@@ -75,6 +113,9 @@ static void homeStepperState(uint8_t i) {
   st.velocityMode = false;
   st.velocityDegPerSec = 0.0f;
   st.stepIntervalUs = computeStepperIntervalUs(sd.stepper.stepsPerRev, sd.stepper.maxDegPerSec);
+  st.isMoving = false;
+  st.coilsEnergized = false;
+  st.hasStoredCommand = false;
   setStepperCoilsLow(sd);
 }
 
@@ -85,6 +126,21 @@ static void holdStepperStateOnLoss(uint8_t i) {
   st.velocityDegPerSec = 0.0f;
   st.target = st.current;
   st.stepIntervalUs = computeStepperIntervalUs(sd.stepper.stepsPerRev, sd.stepper.maxDegPerSec);
+  st.isMoving = false;
+  st.coilsEnergized = false;
+  st.hasStoredCommand = false;
+  setStepperCoilsLow(sd);
+}
+
+static void disableStepperForSafety(uint8_t i) {
+  auto& sd = cfg.subdevices[i];
+  auto& st = stepperStates[i];
+  st.velocityMode = false;
+  st.velocityDegPerSec = 0.0f;
+  st.target = st.current;
+  st.isMoving = false;
+  st.nextStepDueUs = 0;
+  st.coilsEnergized = false;
   setStepperCoilsLow(sd);
 }
 
@@ -103,21 +159,16 @@ static uint16_t readU16(const uint8_t* dmxSlots, uint16_t addr) {
   return (uint16_t)((hi << 8) | lo);
 }
 
-static int32_t floorDiv(int32_t v, int32_t d) {
-  int32_t q = v / d;
-  int32_t r = v % d;
-  if (r != 0 && ((r > 0) != (d > 0))) q--;
-  return q;
-}
-
 static int32_t mapPositionToSteps(uint16_t rawPosition, uint16_t rawMax, uint16_t stepsPerRev) {
   if (stepsPerRev <= 1 || rawMax == 0) return 0;
   return (int32_t)(((uint32_t)rawPosition * (uint32_t)(stepsPerRev - 1)) / rawMax);
 }
 
+static int8_t directionSign(StepperDirection dir) {
+  return dir == STEPPER_DIR_CCW ? -1 : 1;
+}
+
 static int32_t computeSeekTargetSteps(const SubdeviceConfig& sd, const StepperState& st, int32_t targetWithinRev) {
-  // DMX absolute position should take the shortest path within one revolution.
-  // (This avoids always seeking CW/CCW and doing a full wrap when crossing 0.)
   int32_t stepsPerRev = sd.stepper.stepsPerRev;
   if (stepsPerRev <= 0) return st.current;
 
@@ -126,11 +177,43 @@ static int32_t computeSeekTargetSteps(const SubdeviceConfig& sd, const StepperSt
   if (currentWithinRev < 0) currentWithinRev += stepsPerRev;
 
   int32_t delta = targetWithinRev - currentWithinRev;
-  int32_t half = stepsPerRev / 2;
-  if (delta > half) delta -= stepsPerRev;
-  if (delta < -half) delta += stepsPerRev;
+  int32_t deltaCw = delta;
+  if (deltaCw < 0) deltaCw += stepsPerRev;
 
-  return st.current + delta;
+  int32_t deltaCcw = delta;
+  if (deltaCcw > 0) deltaCcw -= stepsPerRev;
+
+  if (sd.stepper.seekMode == STEPPER_SEEK_DIRECTIONAL) {
+    bool isForwardMove = true;
+    if (st.lastAbsoluteInputWithinRev >= 0) {
+      isForwardMove = targetWithinRev >= st.lastAbsoluteInputWithinRev;
+    }
+    int8_t forcedDirection = directionSign(isForwardMove ? sd.stepper.seekForwardDirection : sd.stepper.seekReturnDirection);
+    return st.current + (forcedDirection >= 0 ? deltaCw : deltaCcw);
+  }
+
+  int32_t magCw = deltaCw >= 0 ? deltaCw : -deltaCw;
+  int32_t magCcw = deltaCcw >= 0 ? deltaCcw : -deltaCcw;
+  if (magCw < magCcw) return st.current + deltaCw;
+  if (magCcw < magCw) return st.current + deltaCcw;
+
+  int8_t tieDirection = 1;
+  if (sd.stepper.seekTieBreakMode == STEPPER_TIEBREAK_CCW) {
+    tieDirection = -1;
+  } else if (sd.stepper.seekTieBreakMode == STEPPER_TIEBREAK_OPPOSITE_LAST) {
+    tieDirection = (st.lastStepDir > 0) ? -1 : 1;
+  }
+  return st.current + (tieDirection >= 0 ? deltaCw : deltaCcw);
+}
+
+static int32_t clampStepperTargetToLimits(const SubdeviceConfig& sd, int32_t target) {
+  if (!sd.stepper.limitsEnabled) return target;
+  float stepsPerDeg = (float)sd.stepper.stepsPerRev / 360.0f;
+  int32_t minTarget = (int32_t)lroundf(sd.stepper.minDeg * stepsPerDeg) + sd.stepper.homeOffsetSteps;
+  int32_t maxTarget = (int32_t)lroundf(sd.stepper.maxDeg * stepsPerDeg) + sd.stepper.homeOffsetSteps;
+  if (target < minTarget) return minTarget;
+  if (target > maxTarget) return maxTarget;
+  return target;
 }
 
 static void setRelayOutput(uint8_t i, bool on) {
@@ -215,23 +298,25 @@ static void applyStepperAbsoluteCommand(uint8_t i, int32_t targetWithinRev) {
 
   st.velocityMode = false;
   int32_t target = computeSeekTargetSteps(sd, st, targetWithinRev);
-  if (sd.stepper.limitsEnabled) {
-    float stepsPerDeg = (float)sd.stepper.stepsPerRev / 360.0f;
-    int32_t minTarget = (int32_t)lroundf(sd.stepper.minDeg * stepsPerDeg) + sd.stepper.homeOffsetSteps;
-    int32_t maxTarget = (int32_t)lroundf(sd.stepper.maxDeg * stepsPerDeg) + sd.stepper.homeOffsetSteps;
-    if (target < minTarget) target = minTarget;
-    if (target > maxTarget) target = maxTarget;
-  }
-  st.target = target;
+  st.lastAbsoluteInputWithinRev = targetWithinRev;
+  st.target = clampStepperTargetToLimits(sd, target);
   st.velocityDegPerSec = 0.0f;
   st.stepIntervalUs = computeStepperIntervalUs(sd.stepper.stepsPerRev, sd.stepper.maxDegPerSec);
+  if (st.target != st.current) {
+    markStepperCommandReady(i);
+  } else {
+    st.isMoving = false;
+  }
 }
 
 static void applyStepperVelocityCommand(uint8_t i, uint8_t speedRaw) {
   auto& sd = cfg.subdevices[i];
   auto& st = stepperStates[i];
 
+  if (st.velocityMode && st.lastVelocityRaw == speedRaw) return;
+
   st.velocityMode = true;
+  st.lastVelocityRaw = speedRaw;
 
   // Velocity mapping:
   //   0      = rotation disabled (handled by caller)
@@ -253,6 +338,23 @@ static void applyStepperVelocityCommand(uint8_t i, uint8_t speedRaw) {
   st.velocityDegPerSec = minDegPerSec + (sd.stepper.maxDegPerSec - minDegPerSec) * t;
   st.stepIntervalUs = computeStepperIntervalUs(sd.stepper.stepsPerRev, st.velocityDegPerSec);
   st.target = st.current;
+  markStepperCommandReady(i);
+}
+
+static void applyStepperControlCommand(uint8_t i, int32_t targetWithinRev, uint8_t speedRaw) {
+  if (speedRaw == 0) {
+    applyStepperAbsoluteCommand(i, targetWithinRev);
+    return;
+  }
+  applyStepperVelocityCommand(i, speedRaw);
+}
+
+static void storeStepperControlCommand(uint8_t i, int32_t targetWithinRev, uint8_t speedRaw) {
+  auto& st = stepperStates[i];
+  st.hasStoredCommand = true;
+  st.storedVelocityMode = speedRaw != 0;
+  st.storedTargetWithinRev = targetWithinRev;
+  st.storedSpeedRaw = speedRaw;
 }
 uint8_t subdeviceSlotWidth(const SubdeviceConfig& sd) {
   switch (sd.type) {
@@ -308,6 +410,10 @@ static void initStepperDevice(uint8_t i) {
   stepperStates[i].current = sd.stepper.homeOffsetSteps;
   stepperStates[i].target = sd.stepper.homeOffsetSteps;
   stepperStates[i].stepIntervalUs = computeStepperIntervalUs(sd.stepper.stepsPerRev, sd.stepper.maxDegPerSec);
+  stepperStates[i].isMoving = false;
+  stepperStates[i].coilsEnergized = false;
+  stepperStates[i].safetyEnabled = true;
+  stepperStates[i].hasStoredCommand = false;
   if (sd.stepper.homeSwitchEnabled && sd.stepper.homeSwitchPin != 255) {
     pinMode(sd.stepper.homeSwitchPin, sd.stepper.homeSwitchActiveLow ? INPUT_PULLUP : INPUT);
   }
@@ -346,7 +452,8 @@ static void initPixelDevice(uint8_t i) {
   }
   if (sd.pixels.count == 0) return;
 
-  pixelStrips[i] = new Adafruit_NeoPixel(sd.pixels.count, sd.pixels.pin, NEO_GRB + NEO_KHZ800);
+  pixelStrips[i] = new (std::nothrow) Adafruit_NeoPixel(sd.pixels.count, sd.pixels.pin, NEO_GRB + NEO_KHZ800);
+  if (!pixelStrips[i]) return;
   pixelStrips[i]->begin();
   pixelStrips[i]->setBrightness(sd.pixels.brightness);
   pixelStrips[i]->clear();
@@ -356,7 +463,27 @@ static void initPixelDevice(uint8_t i) {
 }
 #endif
 
+static void clearSubdeviceRuntimeState() {
+  for (uint8_t i = 0; i < MAX_SUBDEVICES; i++) {
+    stepperStates[i] = StepperState();
+    dcOutputStates[i] = DcOutputState();
+    pixelCommands[i] = PixelCommand();
+    relayStates[i] = false;
+    ledStates[i] = false;
+    dcTestStates[i] = false;
+#if USE_PIXELS
+    if (pixelStrips[i]) {
+      delete pixelStrips[i];
+      pixelStrips[i] = nullptr;
+    }
+    pixelTestStates[i] = false;
+#endif
+  }
+}
+
 void initSubdevices() {
+  clearSubdeviceRuntimeState();
+
   for (uint8_t i = 0; i < cfg.subdeviceCount && i < MAX_SUBDEVICES; i++) {
     if (!cfg.subdevices[i].enabled) continue;
     switch (cfg.subdevices[i].type) {
@@ -383,35 +510,55 @@ static void tickStepper(uint8_t i) {
     return;
   }
 
-  if (!st.velocityMode && st.current == st.target) return;
   uint32_t nowUs = micros();
-  if ((int32_t)(nowUs - st.nextStepDueUs) < 0) return;
+  if (!st.velocityMode && st.current == st.target) {
+    st.isMoving = false;
+    if (st.coilsEnergized) {
+      setStepperCoilsLow(sd);
+      st.coilsEnergized = false;
+    }
+    return;
+  }
 
-  uint32_t intervalUs = st.stepIntervalUs;
+  if (st.nextStepDueUs == 0) st.nextStepDueUs = nowUs;
 
-  if (st.velocityMode) {
-    if (st.velocityDir >= 0) {
+  uint8_t maxStepsThisTick = 8;
+  uint8_t stepsDone = 0;
+  while (isStepperTimeDue(nowUs, st.nextStepDueUs) && stepsDone < maxStepsThisTick) {
+    uint32_t intervalUs = st.stepIntervalUs;
+
+    if (st.velocityMode) {
+      if (st.velocityDir >= 0) {
+        st.current++;
+        st.phase = (st.phase + 1) & 0x07;
+        st.lastStepDir = 1;
+      } else {
+        st.current--;
+        st.phase = (st.phase + 7) & 0x07;
+        st.lastStepDir = -1;
+      }
+      st.target = st.current;
+    } else if (st.target > st.current) {
       st.current++;
       st.phase = (st.phase + 1) & 0x07;
+      st.lastStepDir = 1;
     } else {
       st.current--;
       st.phase = (st.phase + 7) & 0x07;
+      st.lastStepDir = -1;
     }
-    st.target = st.current;
-  } else if (st.target > st.current) {
-    st.current++;
-    st.phase = (st.phase + 1) & 0x07;
-  } else {
-    st.current--;
-    st.phase = (st.phase + 7) & 0x07;
+
+    applyStepperCoils(i);
+    st.isMoving = true;
+
+    st.nextStepDueUs += intervalUs;
+    stepsDone++;
+    nowUs = micros();
   }
 
-  digitalWrite(sd.stepper.in1, HALFSEQ[st.phase][0] ? HIGH : LOW);
-  digitalWrite(sd.stepper.in2, HALFSEQ[st.phase][1] ? HIGH : LOW);
-  digitalWrite(sd.stepper.in3, HALFSEQ[st.phase][2] ? HIGH : LOW);
-  digitalWrite(sd.stepper.in4, HALFSEQ[st.phase][3] ? HIGH : LOW);
-
-  st.nextStepDueUs = nowUs + intervalUs;
+  if (stepsDone == 0 && !st.velocityMode && st.current == st.target) {
+    st.isMoving = false;
+  }
 }
 
 void tickSubdevices() {
@@ -449,25 +596,43 @@ void applySacnToSubdevices(uint16_t universe, const uint8_t* dmxSlots, uint16_t 
         break;
       }
       case SUBDEVICE_STEPPER: {
-        uint8_t speedRaw = 0;
+        auto& st = stepperStates[i];
+        uint8_t controlRaw = 0;
         int32_t targetWithinRev = 0;
 
         if (sd.stepper.position16Bit) {
           uint16_t positionRaw16 = readU16(dmxSlots, sd.map.startAddr);
-          speedRaw = dmxSlots[sd.map.startAddr + 1];
+          controlRaw = dmxSlots[sd.map.startAddr + 1];
           targetWithinRev = mapPositionToSteps(positionRaw16, 65535, sd.stepper.stepsPerRev);
         } else {
           uint8_t positionRaw8 = dmxSlots[sd.map.startAddr - 1];
-          speedRaw = dmxSlots[sd.map.startAddr];
+          controlRaw = dmxSlots[sd.map.startAddr];
           targetWithinRev = mapPositionToSteps(positionRaw8, 255, sd.stepper.stepsPerRev);
         }
 
-        if (speedRaw == 0) {
-          applyStepperAbsoluteCommand(i, targetWithinRev);
+        bool safetyEnabled = (controlRaw & 0x01) != 0;
+        uint8_t speedRaw = controlRaw & 0xFE;
+
+        if (!safetyEnabled) {
+          st.safetyEnabled = false;
+          storeStepperControlCommand(i, targetWithinRev, speedRaw);
+          disableStepperForSafety(i);
           break;
         }
 
-        applyStepperVelocityCommand(i, speedRaw);
+        bool wasSafetyDisabled = !st.safetyEnabled;
+        st.safetyEnabled = true;
+        if (wasSafetyDisabled && st.hasStoredCommand) {
+          if (st.storedVelocityMode) {
+            applyStepperVelocityCommand(i, st.storedSpeedRaw);
+          } else {
+            applyStepperAbsoluteCommand(i, st.storedTargetWithinRev);
+          }
+          st.hasStoredCommand = false;
+          break;
+        }
+
+        applyStepperControlCommand(i, targetWithinRev, speedRaw);
         break;
       }
       case SUBDEVICE_RELAY: {
